@@ -219,6 +219,29 @@ body.kiosk { min-height: 100vh; background-color: #12283f; background-image: rad
 .kamera-info { position: absolute; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,.55); color: #fff; font-size: .72rem; line-height: 1.35; padding: 6px 10px; }
 .foto-besar { max-width: 100%; border-radius: 8px; }
 
+/* Styling Presensi Wajah */
+.mode-switch-wrap { display: flex; justify-content: center; gap: 8px; margin-bottom: 18px; }
+.mode-switch-btn { border-radius: 24px; padding: 7px 18px; font-size: 0.84rem; font-weight: 600; transition: all 0.2s ease; border: 1px solid rgba(255,255,255,0.25); background: rgba(255,255,255,0.08); color: #fff; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.mode-switch-btn:hover { background: rgba(255,255,255,0.18); color: #fff; }
+.mode-switch-btn.aktif { background: #fff; color: #12283f; border-color: #fff; box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
+.face-scan-box { position: relative; width: 100%; aspect-ratio: 4/3; max-height: 440px; background: #000; border-radius: 12px; overflow: hidden; margin: 0 auto; box-shadow: 0 10px 25px rgba(0,0,0,0.2); }
+.face-scan-box video { width: 100%; height: 100%; object-fit: cover; display: block; transform: scaleX(-1); }
+.face-scan-box canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+.face-scan-target { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 200px; height: 250px; border: 2px dashed rgba(255,255,255,0.45); border-radius: 50% 50% 45% 45% / 55% 55% 45% 45%; pointer-events: none; transition: all 0.3s ease; }
+.face-scan-target.matched { border: 3px solid #28a745; box-shadow: 0 0 25px rgba(40,167,69,0.7); }
+.face-scan-target.detecting { border-color: #ffc107; box-shadow: 0 0 15px rgba(255,193,7,0.5); }
+.face-scan-line { position: absolute; left: 15%; right: 15%; height: 2px; background: linear-gradient(90deg, transparent, #20c997, transparent); top: 15%; animation: scanAnim 2.2s ease-in-out infinite alternate; pointer-events: none; }
+@keyframes scanAnim { from { top: 15%; } to { top: 85%; } }
+.face-status-pill { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); background: rgba(18,40,63,0.85); backdrop-filter: blur(4px); color: #fff; padding: 6px 14px; border-radius: 20px; font-size: 0.76rem; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; z-index: 5; box-shadow: 0 4px 10px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.18); max-width: 90%; text-align: center; }
+.face-card-result { border-radius: 10px; padding: 14px; background: #f8fafc; border: 1px solid #e2e8f0; margin-top: 14px; transition: all 0.2s ease; }
+.face-card-result.sukses { background: #e9f4ee; border-color: #2f7d4f; }
+.face-avatar { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; border: 2px solid #2f7d4f; flex-shrink: 0; }
+.face-avatar-placeholder { width: 44px; height: 44px; border-radius: 50%; background: #eaeef3; color: #1b3a5c; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.aksi-selector-btn { border-radius: 20px; padding: 4px 12px; font-size: 0.75rem; font-weight: 600; border: 1px solid #d0d7de; background: #fff; color: #1c2430; cursor: pointer; }
+.aksi-selector-btn.aktif { background: #1b3a5c; color: #fff; border-color: #1b3a5c; }
+.pulse-circle { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #28a745; animation: pulse 1.5s infinite; }
+@keyframes pulse { 0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.7); } 70% { transform: scale(1.1); box-shadow: 0 0 0 6px rgba(40, 167, 69, 0); } 100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(40, 167, 69, 0); } }
+
 </style>
 <script>try{document.documentElement.setAttribute('data-bs-theme',localStorage.getItem('tema')||'light')}catch(e){}</script>
 </head>
@@ -228,6 +251,7 @@ body.kiosk { min-height: 100vh; background-color: #12283f; background-image: rad
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
 <script>
 'use strict';
 /* Penyimpanan data di browser (IndexedDB). GitHub Pages hanya hosting statis,
@@ -401,6 +425,7 @@ function bersihkanModal() {
 async function render() {
     bersihkanModal();
     stopKamera();
+    stopScanWajah();
     clearInterval(window._jamTimer);
     const path = parseHash();
     document.body.classList.toggle('kiosk', path === '/');
@@ -484,15 +509,138 @@ function halLogin(app) {
 }
 
 // ============================================================
+//  PENGENALAN WAJAH (FACE RECOGNITION AI)
+// ============================================================
+const FaceRec = {
+    modelLoaded: false,
+    loading: false,
+    modelUrls: [
+        'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights',
+        'https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights'
+    ],
+    async init() {
+        if (this.modelLoaded) return true;
+        if (this.loading) {
+            while (this.loading) await new Promise(r => setTimeout(r, 100));
+            return this.modelLoaded;
+        }
+        this.loading = true;
+        if (typeof faceapi === 'undefined') {
+            console.error('Pustaka face-api.js belum termuat.');
+            this.loading = false;
+            return false;
+        }
+        for (const url of this.modelUrls) {
+            try {
+                await Promise.all([
+                    faceapi.nets.tinyFaceDetector.loadFromUri(url),
+                    faceapi.nets.faceLandmark68Net.loadFromUri(url),
+                    faceapi.nets.faceRecognitionNet.loadFromUri(url)
+                ]);
+                this.modelLoaded = true;
+                break;
+            } catch (e) {
+                console.warn('Gagal memuat model dari:', url, e);
+            }
+        }
+        this.loading = false;
+        return this.modelLoaded;
+    },
+    buildMatcher(daftar) {
+        if (!window.faceapi) return null;
+        const labeled = [];
+        for (const p of daftar) {
+            if (p.face_descriptor && Array.isArray(p.face_descriptor) && p.face_descriptor.length === 128) {
+                labeled.push(new faceapi.LabeledFaceDescriptors(String(p.id), [new Float32Array(p.face_descriptor)]));
+            }
+        }
+        if (!labeled.length) return null;
+        return new faceapi.FaceMatcher(labeled, 0.52);
+    },
+    async detectSingle(videoEl) {
+        if (!this.modelLoaded || !videoEl || !videoEl.videoWidth || videoEl.paused || videoEl.ended) return null;
+        try {
+            const opt = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 });
+            return await faceapi.detectSingleFace(videoEl, opt).withFaceLandmarks().withFaceDescriptor();
+        } catch (e) {
+            return null;
+        }
+    },
+    async extractFromMedia(el) {
+        if (!this.modelLoaded) await this.init();
+        if (!this.modelLoaded) return null;
+        try {
+            const opt = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.45 });
+            return await faceapi.detectSingleFace(el, opt).withFaceLandmarks().withFaceDescriptor();
+        } catch (e) {
+            console.error(e);
+            return null;
+        }
+    }
+};
+
+function bunyikanSukses() {
+    try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return;
+        const ctx = new AudioCtx();
+        if (ctx.state === 'suspended') ctx.resume();
+        const o1 = ctx.createOscillator();
+        const g1 = ctx.createGain();
+        o1.type = 'sine';
+        o1.frequency.setValueAtTime(523.25, ctx.currentTime);
+        o1.frequency.setValueAtTime(659.25, ctx.currentTime + 0.1);
+        o1.frequency.setValueAtTime(783.99, ctx.currentTime + 0.2);
+        g1.gain.setValueAtTime(0.25, ctx.currentTime);
+        g1.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.45);
+        o1.connect(g1);
+        g1.connect(ctx.destination);
+        o1.start();
+        o1.stop(ctx.currentTime + 0.45);
+    } catch (e) {}
+}
+
+function buatFotoGeotag(v, peg, aksi) {
+    if (!v || !v.videoWidth) return null;
+    const skala = Math.min(1, 960 / v.videoWidth), c = document.createElement('canvas');
+    c.width = Math.round(v.videoWidth * skala); c.height = Math.round(v.videoHeight * skala);
+    const ctx = c.getContext('2d');
+    ctx.translate(c.width, 0); ctx.scale(-1, 1);
+    ctx.drawImage(v, 0, 0, c.width, c.height);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    
+    const n = new Date();
+    const tgl = `${n.getDate()} ${NAMA_BULAN[n.getMonth() + 1]} ${n.getFullYear()} ` + [n.getHours(), n.getMinutes(), n.getSeconds()].map(x => String(x).padStart(2, '0')).join(':');
+    const koor = K.lat !== null ? `${K.lat.toFixed(6)}, ${K.lng.toFixed(6)}` : 'Lokasi tidak tersedia';
+    const geotag = `${peg.nama} | ${aksi === 'pulang' ? 'Pulang' : 'Masuk'} (Wajah) | ${tgl} | ${koor}`;
+
+    const u = Math.max(13, Math.round(c.width / 48)), pad = Math.round(u * 0.6);
+    ctx.font = `600 ${u}px Arial, sans-serif`;
+    const baris = bungkus(ctx, geotag, c.width - pad * 2);
+    if (K.alamat) bungkus(ctx, K.alamat, c.width - pad * 2).slice(0, 2).forEach(b => baris.push(b));
+    const tinggi = baris.length * u * 1.3 + pad * 2;
+    ctx.fillStyle = 'rgba(0,0,0,0.65)'; ctx.fillRect(0, c.height - tinggi, c.width, tinggi);
+    ctx.fillStyle = '#fff'; ctx.textBaseline = 'top';
+    baris.forEach((b, i) => ctx.fillText(b, pad, c.height - tinggi + pad + i * u * 1.3));
+    return c.toDataURL('image/jpeg', 0.82);
+}
+
+// ============================================================
 //  KIOSK
 // ============================================================
-const K = { lat: null, lng: null, alamat: null, pegawai: null, pin: '', aksi: null, stream: null, foto: null, aksiIzin: null, pengaturan: null, semua: [] };
+const K = {
+    lat: null, lng: null, alamat: null, pegawai: null, pin: '', aksi: null, stream: null, foto: null,
+    aksiIzin: null, pengaturan: null, semua: [],
+    mode: 'wajah', faceStream: null, faceLoopActive: false, faceMatcher: null,
+    faceAksiMode: 'auto', lastMatch: { id: null, count: 0, ts: 0 }, isProcessingPresensi: false
+};
 
 async function halKiosk(app) {
     const [peg, set] = await Promise.all([DB.all('pegawai'), DB.pengaturan()]);
     K.pengaturan = set;
     K.semua = peg.filter(p => p.status === 'aktif').sort((a, b) => a.nama.localeCompare(b.nama));
     K.pegawai = null; K.pin = '';
+    K.mode = K.mode || 'wajah';
     app.innerHTML = `<div class="k-wrap">
         <div class="text-center mb-3">
             <div class="lembaga">Sistem Presensi Elektronik</div>
@@ -501,11 +649,67 @@ async function halKiosk(app) {
             <div id="lokStrip" class="lok-strip"><i class="bi bi-geo-alt"></i><span id="lokTeks">Mendeteksi lokasi...</span></div>
         </div>
         ${htmlFlash(false)}
+        <div class="mode-switch-wrap">
+            <button type="button" class="mode-switch-btn ${K.mode === 'wajah' ? 'aktif' : ''}" data-act="gantiModeKiosk" data-mode="wajah">
+                <i class="bi bi-person-bounding-box"></i> Presensi Wajah (Langsung)
+            </button>
+            <button type="button" class="mode-switch-btn ${K.mode === 'manual' ? 'aktif' : ''}" data-act="gantiModeKiosk" data-mode="manual">
+                <i class="bi bi-keyboard"></i> Presensi Manual (PIN)
+            </button>
+        </div>
         <div class="kartu">
-            <div class="panel aktif" id="panel-pilih">
+            <!-- PANEL WAJAH -->
+            <div class="panel ${K.mode === 'wajah' ? 'aktif' : ''}" id="panel-wajah">
+                <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+                    <div class="small fw-semibold text-muted d-flex align-items-center gap-1">
+                        <span class="pulse-circle"></span> Pengenalan Wajah Langsung
+                    </div>
+                    <div class="d-flex gap-1" id="grupAksiWajah">
+                        <button type="button" class="aksi-selector-btn ${K.faceAksiMode === 'auto' ? 'aktif' : ''}" data-act="setAksiWajah" data-aksi="auto">⚡ Otomatis</button>
+                        <button type="button" class="aksi-selector-btn ${K.faceAksiMode === 'masuk' ? 'aktif' : ''}" data-act="setAksiWajah" data-aksi="masuk">Masuk</button>
+                        <button type="button" class="aksi-selector-btn ${K.faceAksiMode === 'pulang' ? 'aktif' : ''}" data-act="setAksiWajah" data-aksi="pulang">Pulang</button>
+                    </div>
+                </div>
+                <div class="face-scan-box" id="boxScanWajah">
+                    <video id="videoWajah" autoplay playsinline muted></video>
+                    <canvas id="canvasWajah"></canvas>
+                    <div class="face-status-pill" id="statusWajah">
+                        <div class="spinner-border spinner-border-sm text-light me-1" style="width:0.85rem;height:0.85rem;"></div>
+                        <span>Memulai kamera &amp; AI wajah...</span>
+                    </div>
+                    <div class="face-scan-target" id="targetWajah"></div>
+                    <div class="face-scan-line" id="lineWajah"></div>
+                </div>
+                <div id="hasilWajah" class="face-card-result">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div class="d-flex align-items-center gap-2">
+                            <div class="face-avatar-placeholder"><i class="bi bi-person-fill fs-5"></i></div>
+                            <div>
+                                <div class="fw-bold small" id="hasilWajahNama">Arahkan wajah ke kamera</div>
+                                <div class="text-muted" style="font-size:0.75rem;" id="hasilWajahKet">Sistem akan mengenali guru/staf secara otomatis</div>
+                            </div>
+                        </div>
+                        <div id="hasilWajahAksiArea">
+                            <span class="badge bg-secondary-subtle text-secondary" id="hasilWajahBadge">Menunggu</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="d-flex justify-content-between align-items-center mt-3 pt-2 border-top flex-wrap gap-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" data-act="bukaDaftarWajahKiosk">
+                        <i class="bi bi-person-plus me-1"></i> Daftarkan Wajah Pegawai
+                    </button>
+                    <button type="button" class="btn btn-sm text-muted" data-act="gantiModeKiosk" data-mode="manual">
+                        Gunakan PIN Manual <i class="bi bi-arrow-right ms-1"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- PANEL MANUAL PILIH NAMA -->
+            <div class="panel ${K.mode === 'manual' ? 'aktif' : ''}" id="panel-pilih">
                 <input type="text" id="cariNama" class="form-control" placeholder="Cari nama Anda..." style="padding:11px 14px;">
                 <div class="grid-pegawai" id="gridPegawai">${K.semua.map(p => `<div class="id-card" data-nama="${esc(p.nama.toLowerCase())}" data-act="pilihPegawai" data-id="${p.id}">
-                    <div class="chip">${esc(p.nama[0])}</div><div><div class="nama">${esc(p.nama)}</div><div class="jabatan">${p.jenis === 'guru' ? 'Guru' : 'Staf'}</div></div></div>`).join('')}</div>
+                    ${p.face_photo ? `<img src="${p.face_photo}" style="width:34px;height:34px;border-radius:6px;object-fit:cover;flex-shrink:0;">` : `<div class="chip">${esc(p.nama[0])}</div>`}
+                    <div><div class="nama">${esc(p.nama)}</div><div class="jabatan">${p.jenis === 'guru' ? 'Guru' : 'Staf'}</div></div></div>`).join('')}</div>
                 ${K.semua.length ? '' : '<p class="text-center text-muted py-4">Belum ada data guru/staf aktif.</p>'}
             </div>
             <div class="panel" id="panel-pin">
@@ -545,10 +749,17 @@ async function halKiosk(app) {
         </div>
         <div class="text-center mt-3"><a href="#/login" class="text-white-50 small">Login Admin</a></div></div>`;
     mulaiJam(); ambilLokasi();
-    $('#cariNama').addEventListener('input', function () {
-        const kw = this.value.toLowerCase().trim();
-        $$('.id-card').forEach(el => el.style.display = el.dataset.nama.includes(kw) ? '' : 'none');
-    });
+    if (K.mode === 'wajah') {
+        mulaiScanWajah();
+    } else {
+        const cariEl = $('#cariNama');
+        if (cariEl) {
+            cariEl.addEventListener('input', function () {
+                const kw = this.value.toLowerCase().trim();
+                $$('.id-card').forEach(el => el.style.display = el.dataset.nama.includes(kw) ? '' : 'none');
+            });
+        }
+    }
 }
 
 function mulaiJam() {
@@ -606,8 +817,668 @@ function resetTampilanKamera() {
     $('#btnAmbilFoto').style.display = ''; $('#btnUlangFoto').style.display = 'none'; $('#btnKirimPresensi').style.display = 'none';
 }
 
+function stopScanWajah() {
+    K.faceLoopActive = false;
+    if (K.faceStream) {
+        try { K.faceStream.getTracks().forEach(t => t.stop()); } catch (e) {}
+        K.faceStream = null;
+    }
+    const v = $('#videoWajah');
+    if (v) v.srcObject = null;
+    const c = $('#canvasWajah');
+    if (c) {
+        const ctx = c.getContext('2d');
+        ctx.clearRect(0, 0, c.width, c.height);
+    }
+}
+
+async function mulaiScanWajah() {
+    stopScanWajah();
+    K.faceLoopActive = true;
+    K.isProcessingPresensi = false;
+    K.lastMatch = { id: null, count: 0, ts: 0 };
+    
+    const pill = $('#statusWajah');
+    const v = $('#videoWajah');
+    if (!v) return;
+    
+    if (pill) pill.innerHTML = '<div class="spinner-border spinner-border-sm text-light me-1" style="width:0.85rem;height:0.85rem;"></div> Memuat model AI wajah...';
+    
+    const ok = await FaceRec.init();
+    if (!ok) {
+        if (pill) pill.innerHTML = '<i class="bi bi-exclamation-triangle-fill text-warning me-1"></i> Model AI wajah belum siap. Periksa koneksi atau gunakan PIN.';
+        return;
+    }
+    
+    K.faceMatcher = FaceRec.buildMatcher(K.semua);
+    
+    try {
+        const s = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'user', width: { ideal: 960 }, height: { ideal: 720 } },
+            audio: false
+        });
+        if (!K.faceLoopActive) {
+            s.getTracks().forEach(t => t.stop());
+            return;
+        }
+        K.faceStream = s;
+        v.srcObject = s;
+        if (pill) pill.innerHTML = '<i class="bi bi-camera me-1"></i> Posisikan wajah di dalam bingkai';
+        
+        loopScanWajah();
+    } catch (e) {
+        if (pill) pill.innerHTML = '<i class="bi bi-camera-video-off me-1"></i> Izin kamera tidak aktif atau kamera belum tersedia.';
+    }
+}
+
+function resetCardHasilWajah() {
+    const card = $('#hasilWajah');
+    if (!card) return;
+    card.className = 'face-card-result';
+    card.innerHTML = `
+        <div class="d-flex align-items-center justify-content-between">
+            <div class="d-flex align-items-center gap-2">
+                <div class="face-avatar-placeholder"><i class="bi bi-person-fill fs-5"></i></div>
+                <div>
+                    <div class="fw-bold small" id="hasilWajahNama">Arahkan wajah ke kamera</div>
+                    <div class="text-muted" style="font-size:0.75rem;" id="hasilWajahKet">Sistem akan mengenali guru/staf secara otomatis</div>
+                </div>
+            </div>
+            <div id="hasilWajahAksiArea">
+                <span class="badge bg-secondary-subtle text-secondary" id="hasilWajahBadge">Menunggu</span>
+            </div>
+        </div>`;
+}
+
+async function loopScanWajah() {
+    if (!K.faceLoopActive || K.isProcessingPresensi) return;
+    const v = $('#videoWajah');
+    const c = $('#canvasWajah');
+    const pill = $('#statusWajah');
+    const target = $('#targetWajah');
+    
+    if (!v || v.paused || v.ended) {
+        if (K.faceLoopActive) setTimeout(loopScanWajah, 150);
+        return;
+    }
+    
+    if (v.readyState < 2 || !v.videoWidth) {
+        if (K.faceLoopActive) setTimeout(loopScanWajah, 120);
+        return;
+    }
+    
+    if (c && (c.width !== v.clientWidth || c.height !== v.clientHeight)) {
+        c.width = v.clientWidth;
+        c.height = v.clientHeight;
+    }
+    
+    const detection = await FaceRec.detectSingle(v);
+    
+    if (!K.faceLoopActive || K.isProcessingPresensi) return;
+    
+    const ctx = c ? c.getContext('2d') : null;
+    if (ctx) ctx.clearRect(0, 0, c.width, c.height);
+    
+    if (!detection) {
+        if (target) { target.classList.remove('matched'); target.classList.remove('detecting'); }
+        if (pill) pill.innerHTML = '<i class="bi bi-camera me-1"></i> Posisikan wajah di dalam bingkai';
+        K.lastMatch = { id: null, count: 0, ts: 0 };
+        resetCardHasilWajah();
+        if (K.faceLoopActive) setTimeout(loopScanWajah, 80);
+        return;
+    }
+    
+    // Face detected
+    const scaleX = c.width / v.videoWidth;
+    const scaleY = c.height / v.videoHeight;
+    const box = detection.detection.box;
+    const bw = box.width * scaleX;
+    const bh = box.height * scaleY;
+    const bx = c.width - (box.x * scaleX + bw);
+    const by = box.y * scaleY;
+    
+    if (!K.faceMatcher) {
+        if (target) { target.classList.add('detecting'); target.classList.remove('matched'); }
+        if (ctx) {
+            ctx.strokeStyle = '#ffc107'; ctx.lineWidth = 2; ctx.strokeRect(bx, by, bw, bh);
+            ctx.fillStyle = 'rgba(255, 193, 7, 0.9)'; ctx.fillRect(bx, by - 24, Math.max(bw, 160), 24);
+            ctx.fillStyle = '#000'; ctx.font = 'bold 12px sans-serif'; ctx.fillText('Wajah Belum Terdaftar', bx + 6, by - 7);
+        }
+        if (pill) pill.innerHTML = '<i class="bi bi-exclamation-triangle-fill text-warning me-1"></i> Belum ada data wajah guru/staf terdaftar';
+        const card = $('#hasilWajah');
+        if (card) {
+            card.innerHTML = `
+                <div class="d-flex align-items-center justify-content-between">
+                    <div>
+                        <div class="fw-bold small text-warning">Wajah Terdeteksi (Belum Terdaftar)</div>
+                        <div class="text-muted" style="font-size:0.75rem;">Daftarkan wajah ini agar dapat langsung presensi</div>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-primary" data-act="bukaDaftarWajahKiosk">
+                        <i class="bi bi-person-plus me-1"></i> Daftarkan
+                    </button>
+                </div>`;
+        }
+        if (K.faceLoopActive) setTimeout(loopScanWajah, 120);
+        return;
+    }
+    
+    const match = K.faceMatcher.findBestMatch(detection.descriptor);
+    
+    if (match.label !== 'unknown') {
+        const peg = K.semua.find(p => p.id === Number(match.label));
+        const confidence = Math.max(50, Math.min(99, Math.round((1 - (match.distance / 0.52)) * 50 + 50)));
+        
+        if (target) { target.classList.add('matched'); target.classList.remove('detecting'); }
+        if (ctx) {
+            ctx.strokeStyle = '#28a745'; ctx.lineWidth = 3;
+            ctx.strokeRect(bx, by, bw, bh);
+            const tagW = Math.max(bw, 170);
+            ctx.fillStyle = 'rgba(40, 167, 69, 0.9)'; ctx.fillRect(bx, by - 26, tagW, 26);
+            ctx.fillStyle = '#fff'; ctx.font = 'bold 13px sans-serif';
+            ctx.fillText(`${peg ? peg.nama : 'Pegawai'} (${confidence}%)`, bx + 6, by - 8);
+        }
+        if (pill && peg) pill.innerHTML = `<i class="bi bi-check-circle-fill text-success me-1"></i> Dikenali: <strong>${esc(peg.nama)}</strong>`;
+        
+        if (peg) {
+            if (K.lastMatch.id === peg.id) {
+                K.lastMatch.count++;
+            } else {
+                K.lastMatch = { id: peg.id, count: 1, ts: Date.now() };
+            }
+            
+            const rec = await statusHariIni(peg.id);
+            let aksiOtomatis = 'masuk';
+            let bolehPresensi = true;
+            let statusBadge = '<span class="badge bg-success-subtle text-success">Siap Masuk</span>';
+            let statusKet = 'Siap melakukan Presensi Masuk';
+            
+            if (rec && (rec.status === 'izin' || rec.status === 'sakit')) {
+                statusKet = `Tercatat ${STATUS_LABEL[rec.status]} hari ini (disetujui).`;
+                statusBadge = `<span class="badge bg-info-subtle text-info">${STATUS_LABEL[rec.status]}</span>`;
+                bolehPresensi = false;
+            } else if (rec && rec.jam_pulang) {
+                statusKet = `Sudah presensi masuk (${rec.jam_masuk}) & pulang (${rec.jam_pulang}) hari ini.`;
+                statusBadge = `<span class="badge bg-secondary-subtle text-secondary">Selesai Hari Ini</span>`;
+                bolehPresensi = false;
+            } else if (rec && rec.jam_masuk) {
+                statusKet = `Sudah presensi masuk (${rec.jam_masuk}). Siap Presensi Pulang.`;
+                statusBadge = `<span class="badge bg-primary-subtle text-primary">Siap Pulang</span>`;
+                aksiOtomatis = 'pulang';
+            }
+            
+            const aksiFinal = K.faceAksiMode === 'auto' ? aksiOtomatis : K.faceAksiMode;
+            
+            const card = $('#hasilWajah');
+            if (card) {
+                card.innerHTML = `
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div class="d-flex align-items-center gap-2">
+                            ${peg.face_photo ? `<img src="${peg.face_photo}" class="face-avatar">` : `<div class="face-avatar-placeholder">${esc(peg.nama[0])}</div>`}
+                            <div>
+                                <div class="fw-bold small text-dark">${esc(peg.nama)} <span class="badge bg-success-subtle text-success ms-1">${confidence}%</span></div>
+                                <div class="text-muted" style="font-size:0.75rem;">${statusKet}</div>
+                            </div>
+                        </div>
+                        <div>
+                            ${bolehPresensi ? `<button type="button" class="btn btn-sm ${aksiFinal === 'pulang' ? 'btn-info' : 'btn-success'} fw-semibold px-3" data-act="klikAbsenWajah" data-pid="${peg.id}" data-aksi="${aksiFinal}">
+                                <i class="bi ${aksiFinal === 'pulang' ? 'bi-box-arrow-right' : 'bi-box-arrow-in-right'} me-1"></i> ${aksiFinal === 'pulang' ? 'Presensi Pulang' : 'Presensi Masuk'}
+                            </button>` : statusBadge}
+                        </div>
+                    </div>`;
+            }
+            
+            // Auto-trigger presensi jika stabil minimal 2 siklus (~0.8 detik)
+            if (bolehPresensi && K.lastMatch.count >= 2) {
+                prosesPresensiWajah(peg, aksiFinal, v);
+                return;
+            }
+        }
+    } else {
+        // Unknown face
+        if (target) { target.classList.add('detecting'); target.classList.remove('matched'); }
+        if (ctx) {
+            ctx.strokeStyle = '#fd7e14'; ctx.lineWidth = 2; ctx.strokeRect(bx, by, bw, bh);
+            ctx.fillStyle = 'rgba(253, 126, 20, 0.9)'; ctx.fillRect(bx, by - 24, Math.max(bw, 160), 24);
+            ctx.fillStyle = '#fff'; ctx.font = 'bold 12px sans-serif'; ctx.fillText('Wajah Tidak Dikenali', bx + 6, by - 7);
+        }
+        if (pill) pill.innerHTML = '<i class="bi bi-question-circle-fill text-warning me-1"></i> Wajah belum terdaftar di sistem';
+        const card = $('#hasilWajah');
+        if (card) {
+            card.innerHTML = `
+                <div class="d-flex align-items-center justify-content-between">
+                    <div>
+                        <div class="fw-bold small text-warning">Wajah Tidak Dikenali</div>
+                        <div class="text-muted" style="font-size:0.75rem;">Pastikan wajah sudah didaftarkan di sistem atau gunakan presensi PIN</div>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-primary" data-act="bukaDaftarWajahKiosk">
+                        <i class="bi bi-person-plus me-1"></i> Daftarkan Wajah
+                    </button>
+                </div>`;
+        }
+        K.lastMatch = { id: null, count: 0, ts: 0 };
+    }
+    
+    if (K.faceLoopActive && !K.isProcessingPresensi) setTimeout(loopScanWajah, 80);
+}
+
+async function prosesPresensiWajah(peg, aksi, videoEl) {
+    if (K.isProcessingPresensi) return;
+    K.isProcessingPresensi = true;
+    
+    const statusPill = $('#statusWajah');
+    const targetBox = $('#targetWajah');
+    const cardHasil = $('#hasilWajah');
+    
+    if (statusPill) statusPill.innerHTML = `<div class="spinner-border spinner-border-sm text-light me-1" style="width:0.85rem;height:0.85rem;"></div> Memproses presensi <strong>${esc(peg.nama)}</strong>...`;
+    if (targetBox) targetBox.classList.add('matched');
+    
+    const fotoBukti = buatFotoGeotag(videoEl, peg, aksi);
+    const res = await catatPresensi(peg.id, peg.pin, aksi, fotoBukti, true);
+    
+    if (res.ok) {
+        bunyikanSukses();
+        if (cardHasil) {
+            cardHasil.className = 'face-card-result sukses animate__animated animate__fadeIn';
+            cardHasil.innerHTML = `
+                <div class="text-center py-2">
+                    <div class="d-inline-flex align-items-center justify-content-center bg-success text-white rounded-circle mb-2" style="width:48px;height:48px;">
+                        <i class="bi bi-check-lg fs-2"></i>
+                    </div>
+                    <h5 class="fw-bold mb-1 text-success">Presensi ${aksi === 'pulang' ? 'Pulang' : 'Masuk'} Berhasil!</h5>
+                    <div class="fw-bold text-dark fs-5">${esc(peg.nama)}</div>
+                    <div class="text-muted small mt-1">Pukul ${res.jam} WIB · ${res.status === 'terlambat' ? '<span class="text-warning fw-semibold">Terlambat</span>' : '<span class="text-success fw-semibold">Tepat Waktu</span>'} · Metode Wajah</div>
+                    <div class="mt-2"><span class="badge bg-light text-muted border" id="countdownReset">Melanjutkan dalam 3 detik...</span></div>
+                </div>`;
+        }
+        if (statusPill) statusPill.innerHTML = `<i class="bi bi-check-circle-fill text-success me-1"></i> Sukses: ${esc(peg.nama)}`;
+        
+        let sisa = 3;
+        const cdTimer = setInterval(() => {
+            sisa--;
+            const el = $('#countdownReset');
+            if (el) el.textContent = `Melanjutkan dalam ${sisa} detik...`;
+            if (sisa <= 0) {
+                clearInterval(cdTimer);
+                K.isProcessingPresensi = false;
+                K.lastMatch = { id: null, count: 0, ts: 0 };
+                resetCardHasilWajah();
+                if (K.faceLoopActive) loopScanWajah();
+            }
+        }, 1000);
+    } else {
+        if (cardHasil) {
+            cardHasil.className = 'face-card-result animate__animated animate__shakeX';
+            cardHasil.innerHTML = `
+                <div class="d-flex align-items-center gap-2 text-danger">
+                    <i class="bi bi-exclamation-octagon-fill fs-3"></i>
+                    <div>
+                        <div class="fw-bold">Presensi Ditolak</div>
+                        <div class="small">${esc(res.pesan)}</div>
+                    </div>
+                </div>`;
+        }
+        if (statusPill) statusPill.innerHTML = `<i class="bi bi-x-circle-fill text-danger me-1"></i> ${esc(res.pesan)}`;
+        
+        setTimeout(() => {
+            K.isProcessingPresensi = false;
+            K.lastMatch = { id: null, count: 0, ts: 0 };
+            resetCardHasilWajah();
+            if (K.faceLoopActive) loopScanWajah();
+        }, 3000);
+    }
+}
+
+async function bukaDaftarWajahKiosk() {
+    stopScanWajah();
+    await FaceRec.init();
+    const pegList = K.semua;
+    tampilModal('Daftarkan Wajah Pegawai', `
+        <div class="mb-3">
+            <label class="form-label small fw-semibold">Pilih Guru / Staf</label>
+            <select id="daftarWajahPegawaiId" class="form-select">
+                <option value="">-- Pilih Nama --</option>
+                ${pegList.map(p => `<option value="${p.id}">${esc(p.nama)} (${p.jenis === 'guru' ? 'Guru' : 'Staf'}) ${p.face_descriptor ? '✓ [Sudah Terdaftar]' : ''}</option>`).join('')}
+            </select>
+        </div>
+        <div class="mb-3">
+            <label class="form-label small fw-semibold">PIN (4 digit)</label>
+            <input type="password" id="daftarWajahPin" class="form-control" maxlength="4" placeholder="Masukkan PIN pegawai...">
+            <div class="form-text small">Diperlukan verifikasi PIN pegawai untuk keamanan pendaftaran wajah.</div>
+        </div>
+        <div class="kamera-box mb-3" style="aspect-ratio:4/3;max-height:280px;">
+            <video id="videoRegWajah" autoplay playsinline muted></video>
+            <canvas id="canvasRegWajah" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;"></canvas>
+            <div class="kamera-info" id="infoRegWajah">Memulai kamera...</div>
+        </div>
+        <div id="statusDeteksiReg" class="alert alert-secondary small py-2 mb-0 text-center">
+            <i class="bi bi-camera me-1"></i> Arahkan wajah lurus ke kamera
+        </div>
+        <div class="mt-3 text-end d-flex gap-2 justify-content-end">
+            <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Batal</button>
+            <button type="button" class="btn btn-primary btn-sm" id="btnSimpanWajah" disabled>
+                <i class="bi bi-camera-fill me-1"></i> Ambil &amp; Simpan Wajah
+            </button>
+        </div>
+    `, { ok: false, lebar: 'modal-md' });
+
+    let stream = null;
+    let regLoop = true;
+    let latestDetection = null;
+
+    try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
+        const v = $('#videoRegWajah');
+        if (v) v.srcObject = stream;
+    } catch (e) {
+        const inf = $('#infoRegWajah'); if (inf) inf.textContent = 'Gagal mengakses kamera: ' + e.message;
+        return;
+    }
+
+    const modalEl = $('#modalHost .modal');
+    modalEl.addEventListener('hidden.bs.modal', () => {
+        regLoop = false;
+        if (stream) stream.getTracks().forEach(t => t.stop());
+        if (K.mode === 'wajah') mulaiScanWajah();
+    });
+
+    const loopReg = async () => {
+        if (!regLoop) return;
+        const v = $('#videoRegWajah');
+        const c = $('#canvasRegWajah');
+        const info = $('#statusDeteksiReg');
+        const btn = $('#btnSimpanWajah');
+        if (v && v.readyState >= 2 && v.videoWidth) {
+            if (c && (c.width !== v.clientWidth || c.height !== v.clientHeight)) {
+                c.width = v.clientWidth; c.height = v.clientHeight;
+            }
+            const detection = await FaceRec.detectSingle(v);
+            if (c) {
+                const ctx = c.getContext('2d');
+                ctx.clearRect(0, 0, c.width, c.height);
+                if (detection) {
+                    latestDetection = detection;
+                    const scaleX = c.width / v.videoWidth, scaleY = c.height / v.videoHeight;
+                    const box = detection.detection.box;
+                    const bw = box.width * scaleX, bh = box.height * scaleY;
+                    const bx = c.width - (box.x * scaleX + bw), by = box.y * scaleY;
+                    ctx.strokeStyle = '#28a745'; ctx.lineWidth = 3;
+                    ctx.strokeRect(bx, by, bw, bh);
+                    if (info) {
+                        info.className = 'alert alert-success small py-2 mb-0 text-center';
+                        info.innerHTML = '<i class="bi bi-check-circle-fill me-1"></i> Wajah terdeteksi dengan baik. Siap diambil!';
+                    }
+                    if (btn) btn.disabled = false;
+                } else {
+                    latestDetection = null;
+                    if (info) {
+                        info.className = 'alert alert-secondary small py-2 mb-0 text-center';
+                        info.innerHTML = '<i class="bi bi-camera me-1"></i> Posisikan wajah di tengah bingkai...';
+                    }
+                    if (btn) btn.disabled = true;
+                }
+            }
+        }
+        if (regLoop) setTimeout(loopReg, 150);
+    };
+    loopReg();
+
+    $('#btnSimpanWajah').addEventListener('click', async () => {
+        const pid = Number($('#daftarWajahPegawaiId').value);
+        const pin = ($('#daftarWajahPin').value || '').trim();
+        if (!pid) { alert('Pilih guru atau staf.'); return; }
+        const p = await DB.get('pegawai', pid);
+        if (!p) { alert('Data pegawai tidak ditemukan.'); return; }
+        if (p.pin !== pin) { alert('PIN salah. Verifikasi gagal.'); return; }
+        if (!latestDetection) { alert('Wajah belum terdeteksi. Lihat ke kamera.'); return; }
+
+        const v = $('#videoRegWajah');
+        const sc = document.createElement('canvas');
+        sc.width = 160; sc.height = 160;
+        const sctx = sc.getContext('2d');
+        sctx.translate(160, 0); sctx.scale(-1, 1);
+        sctx.drawImage(v, 0, 0, 160, 160);
+        const fotoThumbnail = sc.toDataURL('image/jpeg', 0.85);
+
+        p.face_descriptor = Array.from(latestDetection.descriptor);
+        p.face_photo = fotoThumbnail;
+        await DB.put('pegawai', p);
+
+        const idx = K.semua.findIndex(x => x.id === p.id);
+        if (idx !== -1) K.semua[idx] = p;
+        K.faceMatcher = FaceRec.buildMatcher(K.semua);
+
+        bootstrap.Modal.getInstance(modalEl).hide();
+        flash(`Wajah '${p.nama}' berhasil didaftarkan! Sekarang dapat langsung absen dengan wajah.`, 'success');
+        render();
+    });
+}
+
+async function bukaDaftarWajahAdmin(pid) {
+    await FaceRec.init();
+    const p = await DB.get('pegawai', Number(pid));
+    if (!p) return;
+    const sudahAda = !!(p.face_descriptor && p.face_descriptor.length === 128);
+
+    tampilModal(`Kelola Wajah — ${esc(p.nama)}`, `
+        <div class="text-center mb-3">
+            ${p.face_photo ? `<img src="${p.face_photo}" class="rounded-circle border mb-2 shadow-sm" style="width:70px;height:70px;object-fit:cover;">` : '<div class="avatar-placeholder mx-auto mb-2"><i class="bi bi-person-fill fs-3"></i></div>'}
+            <div class="fw-bold">${esc(p.nama)}</div>
+            <div class="small text-muted">${kode(p)} · ${p.jenis === 'guru' ? 'Guru' : 'Staf'}</div>
+            <div class="mt-1">${sudahAda ? '<span class="badge bg-success-subtle text-success border border-success-subtle"><i class="bi bi-check-circle-fill me-1"></i>Wajah Terdaftar</span>' : '<span class="badge bg-secondary-subtle text-secondary border">Belum Ada Data Wajah</span>'}</div>
+        </div>
+
+        <ul class="nav nav-pills nav-fill mb-3" id="tabDaftarWajah">
+            <li class="nav-item"><a class="nav-link active py-1" id="tabCamLink" data-bs-toggle="pill" href="#tabCam"><i class="bi bi-camera me-1"></i>Webcam</a></li>
+            <li class="nav-item"><a class="nav-link py-1" id="tabFileLink" data-bs-toggle="pill" href="#tabFile"><i class="bi bi-upload me-1"></i>Unggah Foto</a></li>
+        </ul>
+
+        <div class="tab-content">
+            <div class="tab-pane fade show active" id="tabCam">
+                <div class="kamera-box mb-2" style="aspect-ratio:4/3;max-height:260px;">
+                    <video id="adminRegVideo" autoplay playsinline muted></video>
+                    <canvas id="adminRegCanvas" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;"></canvas>
+                    <div class="kamera-info" id="adminRegInfo">Memulai kamera...</div>
+                </div>
+                <div id="adminDeteksiStatus" class="alert alert-secondary small py-2 mb-2 text-center">
+                    <i class="bi bi-camera me-1"></i> Arahkan wajah pegawai ke kamera
+                </div>
+                <button type="button" class="btn btn-primary w-100" id="btnAdminSimpanCam" disabled>
+                    <i class="bi bi-camera-fill me-1"></i> Ambil &amp; Simpan dari Kamera
+                </button>
+            </div>
+            <div class="tab-pane fade" id="tabFile">
+                <div class="mb-3">
+                    <label class="form-label small fw-semibold">Pilih File Foto (Pasfoto / Foto Wajah Jelas)</label>
+                    <input type="file" id="inputFotoPegawai" class="form-control" accept="image/*">
+                </div>
+                <div id="previewFotoArea" class="text-center p-3 border rounded mb-3 bg-light" style="display:none;">
+                    <img id="imgPreviewWajah" class="rounded mb-2" style="max-height:200px;max-width:100%;">
+                    <div id="statusDeteksiFoto" class="small fw-semibold"></div>
+                </div>
+                <button type="button" class="btn btn-primary w-100" id="btnAdminSimpanFile" disabled>
+                    <i class="bi bi-check-lg me-1"></i> Gunakan Foto Ini
+                </button>
+            </div>
+        </div>
+
+        ${sudahAda ? `
+            <hr class="my-3">
+            <div class="d-flex justify-content-between align-items-center">
+                <span class="small text-muted">Ingin menghapus data wajah ini?</span>
+                <button type="button" class="btn btn-outline-danger btn-sm" id="btnAdminHapusWajah">
+                    <i class="bi bi-trash me-1"></i> Hapus Data Wajah
+                </button>
+            </div>
+        ` : ''}
+    `, { ok: false, lebar: 'modal-md' });
+
+    let stream = null;
+    let loopActive = true;
+    let latestCamDetection = null;
+    let latestFileDetection = null;
+    let fileThumbnail = null;
+
+    try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
+        const v = $('#adminRegVideo');
+        if (v) v.srcObject = stream;
+    } catch (e) {
+        const inf = $('#adminRegInfo'); if (inf) inf.textContent = 'Gagal mengakses kamera: ' + e.message;
+    }
+
+    const modalEl = $('#modalHost .modal');
+    modalEl.addEventListener('hidden.bs.modal', () => {
+        loopActive = false;
+        if (stream) stream.getTracks().forEach(t => t.stop());
+    });
+
+    const loopAdmin = async () => {
+        if (!loopActive) return;
+        const v = $('#adminRegVideo');
+        const c = $('#adminRegCanvas');
+        const info = $('#adminDeteksiStatus');
+        const btn = $('#btnAdminSimpanCam');
+        if (v && v.readyState >= 2 && v.videoWidth) {
+            if (c && (c.width !== v.clientWidth || c.height !== v.clientHeight)) {
+                c.width = v.clientWidth; c.height = v.clientHeight;
+            }
+            const detection = await FaceRec.detectSingle(v);
+            if (c) {
+                const ctx = c.getContext('2d');
+                ctx.clearRect(0, 0, c.width, c.height);
+                if (detection) {
+                    latestCamDetection = detection;
+                    const scaleX = c.width / v.videoWidth, scaleY = c.height / v.videoHeight;
+                    const box = detection.detection.box;
+                    const bw = box.width * scaleX, bh = box.height * scaleY;
+                    const bx = c.width - (box.x * scaleX + bw), by = box.y * scaleY;
+                    ctx.strokeStyle = '#28a745'; ctx.lineWidth = 3;
+                    ctx.strokeRect(bx, by, bw, bh);
+                    if (info) {
+                        info.className = 'alert alert-success small py-2 mb-2 text-center';
+                        info.innerHTML = '<i class="bi bi-check-circle-fill me-1"></i> Wajah terdeteksi! Kualitas baik.';
+                    }
+                    if (btn) btn.disabled = false;
+                } else {
+                    latestCamDetection = null;
+                    if (info) {
+                        info.className = 'alert alert-secondary small py-2 mb-2 text-center';
+                        info.innerHTML = '<i class="bi bi-camera me-1"></i> Posisikan wajah di tengah bingkai...';
+                    }
+                    if (btn) btn.disabled = true;
+                }
+            }
+        }
+        if (loopActive) setTimeout(loopAdmin, 150);
+    };
+    loopAdmin();
+
+    $('#btnAdminSimpanCam').addEventListener('click', async () => {
+        if (!latestCamDetection) return;
+        const v = $('#adminRegVideo');
+        const sc = document.createElement('canvas');
+        sc.width = 160; sc.height = 160;
+        const sctx = sc.getContext('2d');
+        sctx.translate(160, 0); sctx.scale(-1, 1);
+        sctx.drawImage(v, 0, 0, 160, 160);
+        const fotoThumbnail = sc.toDataURL('image/jpeg', 0.85);
+
+        p.face_descriptor = Array.from(latestCamDetection.descriptor);
+        p.face_photo = fotoThumbnail;
+        await DB.put('pegawai', p);
+
+        bootstrap.Modal.getInstance(modalEl).hide();
+        flash(`Data wajah '${p.nama}' berhasil disimpan!`, 'success');
+        render();
+    });
+
+    $('#inputFotoPegawai').addEventListener('change', function () {
+        const f = this.files[0];
+        if (!f) return;
+        const reader = new FileReader();
+        reader.onload = async ev => {
+            const img = new Image();
+            img.onload = async () => {
+                const previewArea = $('#previewFotoArea');
+                const imgEl = $('#imgPreviewWajah');
+                const statusEl = $('#statusDeteksiFoto');
+                const btnFile = $('#btnAdminSimpanFile');
+                previewArea.style.display = 'block';
+                imgEl.src = img.src;
+                statusEl.className = 'small text-muted';
+                statusEl.innerHTML = '<div class="spinner-border spinner-border-sm me-1"></div> Menganalisis wajah...';
+                btnFile.disabled = true;
+
+                const detection = await FaceRec.extractFromMedia(img);
+                if (detection) {
+                    latestFileDetection = detection;
+                    fileThumbnail = img.src;
+                    statusEl.className = 'small text-success fw-bold';
+                    statusEl.innerHTML = '<i class="bi bi-check-circle-fill me-1"></i> Wajah terdeteksi pada foto!';
+                    btnFile.disabled = false;
+                } else {
+                    latestFileDetection = null;
+                    statusEl.className = 'small text-danger fw-bold';
+                    statusEl.innerHTML = '<i class="bi bi-x-circle-fill me-1"></i> Tidak dapat mendeteksi wajah pada foto ini. Gunakan foto lain yang lebih jelas.';
+                    btnFile.disabled = true;
+                }
+            };
+            img.src = ev.target.result;
+        };
+        reader.readAsDataURL(f);
+    });
+
+    $('#btnAdminSimpanFile').addEventListener('click', async () => {
+        if (!latestFileDetection) return;
+        p.face_descriptor = Array.from(latestFileDetection.descriptor);
+        p.face_photo = fileThumbnail;
+        await DB.put('pegawai', p);
+
+        bootstrap.Modal.getInstance(modalEl).hide();
+        flash(`Data wajah '${p.nama}' dari foto berhasil disimpan!`, 'success');
+        render();
+    });
+
+    const btnHapus = $('#btnAdminHapusWajah');
+    if (btnHapus) {
+        btnHapus.addEventListener('click', async () => {
+            if (!confirm(`Hapus data pengenalan wajah untuk '${p.nama}'?`)) return;
+            p.face_descriptor = null;
+            p.face_photo = null;
+            await DB.put('pegawai', p);
+            bootstrap.Modal.getInstance(modalEl).hide();
+            flash(`Data wajah '${p.nama}' dihapus.`, 'info');
+            render();
+        });
+    }
+}
+
 const AKSI = {
     logout() { Sesi.clear(); flash('Anda telah logout.', 'info'); nav('/login'); },
+
+    gantiModeKiosk(el) {
+        const mode = el.dataset.mode;
+        K.mode = mode;
+        if (mode === 'manual') stopScanWajah();
+        render();
+    },
+    setAksiWajah(el) {
+        K.faceAksiMode = el.dataset.aksi;
+        $$('.aksi-selector-btn').forEach(b => b.classList.toggle('aktif', b === el));
+    },
+    async bukaDaftarWajahKiosk() {
+        await bukaDaftarWajahKiosk();
+    },
+    async bukaDaftarWajahAdmin(el) {
+        await bukaDaftarWajahAdmin(el.dataset.id);
+    },
+    klikAbsenWajah(el) {
+        const pid = Number(el.dataset.pid);
+        const aksi = el.dataset.aksi;
+        const peg = K.semua.find(p => p.id === pid);
+        const v = $('#videoWajah');
+        if (peg && v) prosesPresensiWajah(peg, aksi, v);
+    },
 
     // ---- kiosk ----
     async pilihPegawai(el) {
@@ -665,7 +1536,8 @@ const AKSI = {
     async kirimPresensi() {
         if (!K.foto) { errKamera('Ambil foto terlebih dahulu.'); return; }
         const foto = K.foto; stopKamera();
-        await catatPresensi(K.pegawai.id, K.pin, K.aksi, foto);
+        const res = await catatPresensi(K.pegawai.id, K.pin, K.aksi, foto, false);
+        kembaliKiosk(res.pesan, res.kat);
     },
     bukaIzin(el) {
         if (K.pin.length !== 4) { alert('Masukkan PIN 4 digit terlebih dahulu.'); return; }
@@ -783,37 +1655,39 @@ const FORM = {
 // ============================================================
 //  LOGIKA PRESENSI & PERIZINAN
 // ============================================================
-async function catatPresensi(pid, pin, aksi, foto) {
+async function catatPresensi(pid, pin, aksi, foto, viaWajah = false) {
     const p = await DB.get('pegawai', pid);
-    if (!p || p.status !== 'aktif') return kembaliKiosk('Data pegawai tidak ditemukan.', 'danger');
-    if (pin !== p.pin) return kembaliKiosk('PIN salah. Silakan coba lagi.', 'danger');
+    if (!p || p.status !== 'aktif') return { ok: false, pesan: 'Data pegawai tidak ditemukan.', kat: 'danger' };
+    if (!viaWajah && pin !== p.pin) return { ok: false, pesan: 'PIN salah. Silakan coba lagi.', kat: 'danger' };
     const set = await DB.pengaturan();
     const radius = Number(set.radius_meter || 0);
     if (radius > 0 && set.sekolah_lat && set.sekolah_lng) {
-        if (K.lat === null) return kembaliKiosk('Lokasi tidak terdeteksi. Aktifkan izin lokasi lalu coba lagi.', 'danger');
+        if (K.lat === null) return { ok: false, pesan: 'Lokasi tidak terdeteksi. Aktifkan izin lokasi lalu coba lagi.', kat: 'danger' };
         const j = jarakMeter(K.lat, K.lng, Number(set.sekolah_lat), Number(set.sekolah_lng));
-        if (j > radius) return kembaliKiosk(`Presensi ditolak: Anda sekitar ${Math.round(j)} m dari sekolah (maks ${Math.round(radius)} m).`, 'danger');
+        if (j > radius) return { ok: false, pesan: `Presensi ditolak: Anda sekitar ${Math.round(j)} m dari sekolah (maks ${Math.round(radius)} m).`, kat: 'danger' };
     }
     const now = new Date(), jam = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0'), tgl = isoTgl(now);
     const lokasi = K.alamat || (K.lat !== null ? `${K.lat.toFixed(5)}, ${K.lng.toFixed(5)}` : null);
     let rec = (await DB.all('presensi')).find(r => r.pegawai_id === pid && r.tanggal === tgl);
-    if (rec && (rec.status === 'izin' || rec.status === 'sakit')) return kembaliKiosk(`${p.nama} tercatat ${STATUS_LABEL[rec.status]} hari ini (izin disetujui), tidak perlu presensi.`, 'warning');
+    if (rec && (rec.status === 'izin' || rec.status === 'sakit')) {
+        return { ok: false, pesan: `${p.nama} tercatat ${STATUS_LABEL[rec.status]} hari ini (izin disetujui), tidak perlu presensi.`, kat: 'warning' };
+    }
 
     if (aksi === 'masuk') {
-        if (rec && rec.jam_masuk) return kembaliKiosk(`${p.nama} sudah presensi masuk hari ini pukul ${rec.jam_masuk}.`, 'warning');
+        if (rec && rec.jam_masuk) return { ok: false, pesan: `${p.nama} sudah presensi masuk hari ini pukul ${rec.jam_masuk}.`, kat: 'warning' };
         const status = (now.getHours() * 60 + now.getMinutes()) <= batasTerlambat(set.jam_masuk_standar, set.toleransi_menit) ? 'hadir' : 'terlambat';
-        rec = Object.assign(rec || { pegawai_id: pid, tanggal: tgl }, { jam_masuk: jam, lokasi_masuk: lokasi, lat_masuk: K.lat, lng_masuk: K.lng, foto_masuk: foto, status, waktu_catat: nowStr() });
+        rec = Object.assign(rec || { pegawai_id: pid, tanggal: tgl }, { jam_masuk: jam, lokasi_masuk: lokasi, lat_masuk: K.lat, lng_masuk: K.lng, foto_masuk: foto, status, waktu_catat: nowStr(), metode: viaWajah ? 'wajah' : 'pin' });
         await DB.put('presensi', rec);
-        return kembaliKiosk(`Presensi Masuk berhasil, ${p.nama} — pukul ${jam} (${status === 'terlambat' ? 'Terlambat' : 'Tepat Waktu'}).`, status === 'terlambat' ? 'warning' : 'success');
+        return { ok: true, pesan: `Presensi Masuk berhasil, ${p.nama} — pukul ${jam} (${status === 'terlambat' ? 'Terlambat' : 'Tepat Waktu'}).`, kat: status === 'terlambat' ? 'warning' : 'success', status, pegawai: p, jam };
     }
     if (aksi === 'pulang') {
-        if (!rec || !rec.jam_masuk) return kembaliKiosk(`${p.nama} belum presensi masuk, belum bisa presensi pulang.`, 'danger');
-        if (rec.jam_pulang) return kembaliKiosk(`${p.nama} sudah presensi pulang hari ini pukul ${rec.jam_pulang}.`, 'warning');
-        Object.assign(rec, { jam_pulang: jam, lokasi_pulang: lokasi, lat_pulang: K.lat, lng_pulang: K.lng, foto_pulang: foto });
+        if (!rec || !rec.jam_masuk) return { ok: false, pesan: `${p.nama} belum presensi masuk, belum bisa presensi pulang.`, kat: 'danger' };
+        if (rec.jam_pulang) return { ok: false, pesan: `${p.nama} sudah presensi pulang hari ini pukul ${rec.jam_pulang}.`, kat: 'warning' };
+        Object.assign(rec, { jam_pulang: jam, lokasi_pulang: lokasi, lat_pulang: K.lat, lng_pulang: K.lng, foto_pulang: foto, metode_pulang: viaWajah ? 'wajah' : 'pin' });
         await DB.put('presensi', rec);
-        return kembaliKiosk(`Presensi Pulang berhasil, ${p.nama} — pukul ${jam}. Sampai jumpa!`, 'success');
+        return { ok: true, pesan: `Presensi Pulang berhasil, ${p.nama} — pukul ${jam}. Sampai jumpa!`, kat: 'success', pegawai: p, jam };
     }
-    kembaliKiosk('Aksi tidak dikenali.', 'danger');
+    return { ok: false, pesan: 'Aksi tidak dikenali.', kat: 'danger' };
 }
 
 async function ajukanIzin(pid, pin, jenis, mulai, selesai, alasan) {
@@ -903,7 +1777,7 @@ async function halRiwayat() {
         <div class="col-md-2"><label class="form-label small mb-1">Status</label><select name="status" class="form-select form-select-sm"><option value="">Semua</option>${Object.entries(STATUS_LABEL).map(([k, v]) => `<option value="${k}" ${par.status === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
         <div class="col-md-2"><button type="submit" class="btn btn-brand btn-sm w-100"><i class="bi bi-filter"></i> Filter</button></div></form>
     <div class="card-x p-3"><div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>Tanggal</th><th>Nama</th><th>Masuk</th><th>Lokasi Masuk</th><th>Pulang</th><th>Lokasi Pulang</th><th>Status</th><th>Keterangan</th></tr></thead><tbody>
-    ${data.length ? data.map(a => { const p = nama[a.pegawai_id]; return `<tr><td class="small">${tglIndo(a.tanggal)}</td><td>${esc(p.nama)}<div class="small text-muted">${kode(p)} · ${p.jenis === 'guru' ? 'Guru' : 'Staf'}</div></td>
+    ${data.length ? data.map(a => { const p = nama[a.pegawai_id]; return `<tr><td class="small">${tglIndo(a.tanggal)}</td><td>${esc(p.nama)}${(a.metode === 'wajah' || a.metode_pulang === 'wajah') ? ' <span class="badge bg-info-subtle text-info border border-info-subtle py-0" style="font-size:0.68rem;" title="Presensi Wajah"><i class="bi bi-person-bounding-box me-1"></i>Wajah</span>' : ''}<div class="small text-muted">${kode(p)} · ${p.jenis === 'guru' ? 'Guru' : 'Staf'}</div></td>
         <td class="small">${a.jam_masuk || '-'}</td><td class="small">${selLokasiSel(a.lokasi_masuk, a.lat_masuk, a.lng_masuk, a.foto_masuk, `${p.nama} — Masuk ${a.tanggal} ${a.jam_masuk || ''}`)}</td>
         <td class="small">${a.jam_pulang || '-'}</td><td class="small">${selLokasiSel(a.lokasi_pulang, a.lat_pulang, a.lng_pulang, a.foto_pulang, `${p.nama} — Pulang ${a.tanggal} ${a.jam_pulang || ''}`)}</td>
         <td>${badgeStatus(a.status)}</td><td class="small">${esc(a.keterangan || '-')}</td></tr>`; }).join('') : '<tr><td colspan="8" class="text-center text-muted py-4">Tidak ada data pada rentang tanggal ini.</td></tr>'}
@@ -935,12 +1809,19 @@ async function halPegawai() {
     <form data-form="filter" data-rute="/pegawai" class="row g-2 mb-3"><div class="col-md-5"><input name="q" value="${esc(rutePar.q || '')}" class="form-control" placeholder="Cari nama, NIP, atau ID..."></div>
         <div class="col-md-3"><select name="jenis" class="form-select"><option value="">Guru &amp; Staf</option><option value="guru" ${sel(jenis, 'guru')}>Guru</option><option value="staf" ${sel(jenis, 'staf')}>Staf</option></select></div>
         <div class="col-md-2"><button class="btn btn-outline-secondary w-100"><i class="bi bi-search"></i> Cari</button></div></form>
-    <div class="card-x p-3"><div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>No</th><th>ID</th><th>Nama</th><th>NIP</th><th>Kelompok</th><th>Jabatan / Bidang</th><th>PIN</th><th>Status</th><th></th></tr></thead><tbody>
-    ${peg.length ? peg.map((p, i) => `<tr><td class="text-muted small">${i + 1}</td><td><code>${kode(p)}</code></td><td class="fw-medium">${esc(p.nama)}</td><td>${esc(p.nip || '-')}</td>
+    <div class="card-x p-3"><div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>No</th><th>ID</th><th>Nama</th><th>NIP</th><th>Kelompok</th><th>Jabatan / Bidang</th><th>PIN</th><th>Wajah</th><th>Status</th><th></th></tr></thead><tbody>
+    ${peg.length ? peg.map((p, i) => `<tr><td class="text-muted small">${i + 1}</td><td><code>${kode(p)}</code></td>
+        <td><div class="d-flex align-items-center gap-2">${p.face_photo ? `<img src="${p.face_photo}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;">` : ''}<span class="fw-medium">${esc(p.nama)}</span></div></td>
+        <td>${esc(p.nip || '-')}</td>
         <td><span class="badge bg-${p.jenis === 'guru' ? 'primary' : 'success'}">${p.jenis === 'guru' ? 'Guru' : 'Staf'}</span></td><td>${esc(p.jabatan || '-')}</td><td><code>${esc(p.pin)}</code></td>
+        <td>${p.face_descriptor ? '<span class="badge bg-success-subtle text-success border border-success-subtle" title="Wajah terdaftar"><i class="bi bi-check-circle-fill me-1"></i>Terdaftar</span>' : '<span class="badge bg-secondary-subtle text-secondary border" title="Belum didaftarkan"><i class="bi bi-dash-circle me-1"></i>Belum</span>'}</td>
         <td>${p.status === 'aktif' ? '<span class="badge bg-success">Aktif</span>' : '<span class="badge bg-secondary">Nonaktif</span>'}</td>
-        <td class="text-end"><button class="btn btn-sm btn-outline-secondary" data-act="formPegawai" data-id="${p.id}" title="Edit"><i class="bi bi-pencil"></i></button> <button class="btn btn-sm btn-outline-danger" data-act="hapusPegawai" data-id="${p.id}" title="Hapus"><i class="bi bi-trash"></i></button></td></tr>`).join('')
-        : '<tr><td colspan="9" class="text-center text-muted py-4">Belum ada data. Klik "Tambah" untuk menambahkan guru atau staf.</td></tr>'}</tbody></table></div></div>`;
+        <td class="text-end">
+            <button class="btn btn-sm btn-outline-primary" data-act="bukaDaftarWajahAdmin" data-id="${p.id}" title="Daftarkan / Kelola Wajah"><i class="bi bi-person-bounding-box"></i></button>
+            <button class="btn btn-sm btn-outline-secondary" data-act="formPegawai" data-id="${p.id}" title="Edit"><i class="bi bi-pencil"></i></button>
+            <button class="btn btn-sm btn-outline-danger" data-act="hapusPegawai" data-id="${p.id}" title="Hapus"><i class="bi bi-trash"></i></button>
+        </td></tr>`).join('')
+        : '<tr><td colspan="10" class="text-center text-muted py-4">Belum ada data. Klik "Tambah" untuk menambahkan guru atau staf.</td></tr>'}</tbody></table></div></div>`;
 }
 
 async function bukaFormPegawai(id) {
@@ -951,7 +1832,11 @@ async function bukaFormPegawai(id) {
         <div class="row g-2 mb-2"><div class="col-6"><label class="form-label small">Kelompok</label><select name="jenis" class="form-select"><option value="guru" ${sel(p.jenis, 'guru')}>Guru</option><option value="staf" ${sel(p.jenis, 'staf')}>Staf</option></select></div>
         <div class="col-6"><label class="form-label small">PIN (4 digit)</label><input name="pin" class="form-control" value="${esc(p.pin)}" pattern="\\d{4}" maxlength="4" required></div></div>
         <div class="mb-2"><label class="form-label small">Jabatan / Bidang</label><input name="jabatan" class="form-control" value="${esc(p.jabatan)}"></div>
-        <div><label class="form-label small">Status</label><select name="status" class="form-select"><option value="aktif" ${sel(p.status, 'aktif')}>Aktif</option><option value="nonaktif" ${sel(p.status, 'nonaktif')}>Nonaktif</option></select></div>`, {
+        <div class="mb-2"><label class="form-label small">Status</label><select name="status" class="form-select"><option value="aktif" ${sel(p.status, 'aktif')}>Aktif</option><option value="nonaktif" ${sel(p.status, 'nonaktif')}>Nonaktif</option></select></div>
+        ${id ? `<div class="p-2 border rounded bg-light small d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-person-bounding-box me-1"></i> Data Wajah: ${p.face_descriptor ? '<strong class="text-success">Sudah Terdaftar</strong>' : '<span class="text-muted">Belum ada</span>'}</span>
+            <button type="button" class="btn btn-sm btn-outline-primary" data-act="bukaDaftarWajahAdmin" data-id="${p.id}"><i class="bi bi-camera me-1"></i>${p.face_descriptor ? 'Ubah Wajah' : 'Daftarkan Wajah'}</button>
+        </div>` : ''}`, {
         onOk: async fd => {
             const pin = (fd.get('pin') || '').trim();
             if (!/^\d{4}$/.test(pin)) { alert('PIN harus 4 digit angka.'); return false; }
