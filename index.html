@@ -241,6 +241,7 @@ body.kiosk { min-height: 100vh; background-color: #12283f; background-image: rad
 .aksi-selector-btn.aktif { background: #1b3a5c; color: #fff; border-color: #1b3a5c; }
 .pulse-circle { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #28a745; animation: pulse 1.5s infinite; }
 @keyframes pulse { 0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.7); } 70% { transform: scale(1.1); box-shadow: 0 0 0 6px rgba(40, 167, 69, 0); } 100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(40, 167, 69, 0); } }
+.jadwal-info-strip { display: inline-flex; align-items: center; justify-content: center; flex-wrap: wrap; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14); border-radius: 20px; padding: 4px 14px; font-size: 0.74rem; color: rgba(255,255,255,0.85); margin-top: 8px; }
 
 </style>
 <script>try{document.documentElement.setAttribute('data-bs-theme',localStorage.getItem('tema')||'light')}catch(e){}</script>
@@ -259,7 +260,14 @@ body.kiosk { min-height: 100vh; background-color: #12283f; background-image: rad
 const STORES = ['pegawai', 'presensi', 'perizinan', 'users', 'pengaturan'];
 
 const PENGATURAN_DEFAULT = {
-    nama_sekolah: 'Sekolah Kita', jam_masuk_standar: '07:30', toleransi_menit: '15',
+    nama_sekolah: 'Sekolah Kita',
+    jam_masuk_mulai: '06:00',
+    jam_masuk_standar: '07:30',
+    toleransi_menit: '15',
+    jam_masuk_akhir: '11:00',
+    jam_pulang_mulai: '14:00',
+    jam_pulang_akhir: '18:00',
+    jeda_minimal_pulang: '30',
     sekolah_lat: '', sekolah_lng: '', radius_meter: '0',
     nama_kepala_sekolah: '', nip_kepala_sekolah: '', kota: ''
 };
@@ -647,6 +655,13 @@ async function halKiosk(app) {
             <div class="nama-sekolah">${esc(set.nama_sekolah)}</div>
             <div class="jam" id="jamBesar">--:--:--</div><div class="tgl" id="tglBesar"></div>
             <div id="lokStrip" class="lok-strip"><i class="bi bi-geo-alt"></i><span id="lokTeks">Mendeteksi lokasi...</span></div>
+            <div>
+                <div class="jadwal-info-strip">
+                    <span><i class="bi bi-box-arrow-in-right me-1 text-success"></i>Masuk: ${esc(set.jam_masuk_mulai || '06:00')}–${esc(set.jam_masuk_standar || '07:30')} (Tol. ${esc(set.toleransi_menit || '15')}m)</span>
+                    <span class="mx-2 opacity-50">•</span>
+                    <span><i class="bi bi-box-arrow-right me-1 text-info"></i>Pulang: Mulai ${esc(set.jam_pulang_mulai || '14:00')}</span>
+                </div>
+            </div>
         </div>
         ${htmlFlash(false)}
         <div class="mode-switch-wrap">
@@ -794,6 +809,60 @@ function jarakMeter(a1, o1, a2, o2) {
     return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 function batasTerlambat(jam, tol) { const [h, m] = jam.split(':').map(Number); const t = h * 60 + m + Number(tol); return t; }
+
+function jamKeMenit(s) {
+    if (!s || typeof s !== 'string') return null;
+    const p = s.split(':').map(Number);
+    if (p.length < 2 || isNaN(p[0]) || isNaN(p[1])) return null;
+    return p[0] * 60 + p[1];
+}
+
+function cekWaktuMasuk(set, now = new Date()) {
+    const menitSkrg = now.getHours() * 60 + now.getMinutes();
+    const mulai = jamKeMenit(set.jam_masuk_mulai);
+    const akhir = jamKeMenit(set.jam_masuk_akhir);
+
+    if (mulai !== null && menitSkrg < mulai) {
+        return { boleh: false, pesan: `Presensi Masuk belum dibuka (dibuka mulai pukul ${set.jam_masuk_mulai}).` };
+    }
+    if (akhir !== null && menitSkrg > akhir) {
+        return { boleh: false, pesan: `Waktu Presensi Masuk telah ditutup (batas pukul ${set.jam_masuk_akhir}).` };
+    }
+    return { boleh: true };
+}
+
+function cekWaktuPulang(recMasuk, set, now = new Date()) {
+    if (!recMasuk || !recMasuk.jam_masuk) {
+        return { boleh: false, pesan: 'Belum presensi masuk, tidak bisa presensi pulang.' };
+    }
+    if (recMasuk.jam_pulang) {
+        return { boleh: false, pesan: `Sudah presensi pulang hari ini pukul ${recMasuk.jam_pulang}.` };
+    }
+    const menitSkrg = now.getHours() * 60 + now.getMinutes();
+    const mulai = jamKeMenit(set.jam_pulang_mulai);
+    const akhir = jamKeMenit(set.jam_pulang_akhir);
+
+    if (mulai !== null && menitSkrg < mulai) {
+        return { boleh: false, pesan: `Presensi Pulang belum dibuka (baru dibuka mulai pukul ${set.jam_pulang_mulai}).` };
+    }
+    if (akhir !== null && menitSkrg > akhir) {
+        return { boleh: false, pesan: `Waktu Presensi Pulang telah ditutup (batas pukul ${set.jam_pulang_akhir}).` };
+    }
+
+    const jedaMin = Number(set.jeda_minimal_pulang || 0);
+    if (jedaMin > 0 && recMasuk.jam_masuk) {
+        const menitMasuk = jamKeMenit(recMasuk.jam_masuk);
+        if (menitMasuk !== null && (menitSkrg - menitMasuk) < jedaMin) {
+            const sisa = jedaMin - (menitSkrg - menitMasuk);
+            return {
+                boleh: false,
+                pesan: `Presensi Pulang terlalu cepat setelah masuk. Harus menunggu minimal ${jedaMin} menit setelah jam masuk (${recMasuk.jam_masuk}). Coba lagi dalam ${sisa} menit.`
+            };
+        }
+    }
+
+    return { boleh: true };
+}
 
 function kembaliKiosk(teks, kat) { flash(teks, kat); render(); window.scrollTo(0, 0); }
 
@@ -987,6 +1056,7 @@ async function loopScanWajah() {
             }
             
             const rec = await statusHariIni(peg.id);
+            const now = new Date();
             let aksiOtomatis = 'masuk';
             let bolehPresensi = true;
             let statusBadge = '<span class="badge bg-success-subtle text-success">Siap Masuk</span>';
@@ -1001,12 +1071,57 @@ async function loopScanWajah() {
                 statusBadge = `<span class="badge bg-secondary-subtle text-secondary">Selesai Hari Ini</span>`;
                 bolehPresensi = false;
             } else if (rec && rec.jam_masuk) {
-                statusKet = `Sudah presensi masuk (${rec.jam_masuk}). Siap Presensi Pulang.`;
-                statusBadge = `<span class="badge bg-primary-subtle text-primary">Siap Pulang</span>`;
                 aksiOtomatis = 'pulang';
+                const cP = cekWaktuPulang(rec, K.pengaturan, now);
+                if (!cP.boleh) {
+                    statusKet = `Sudah presensi masuk (${rec.jam_masuk}). ${cP.pesan}`;
+                    statusBadge = `<span class="badge bg-warning-subtle text-warning">Belum Boleh Pulang</span>`;
+                    bolehPresensi = false;
+                } else {
+                    statusKet = `Sudah presensi masuk (${rec.jam_masuk}). Siap Presensi Pulang.`;
+                    statusBadge = `<span class="badge bg-primary-subtle text-primary">Siap Pulang</span>`;
+                    bolehPresensi = true;
+                }
+            } else {
+                aksiOtomatis = 'masuk';
+                const cM = cekWaktuMasuk(K.pengaturan, now);
+                if (!cM.boleh) {
+                    statusKet = cM.pesan;
+                    statusBadge = `<span class="badge bg-secondary-subtle text-secondary">Belum Dibuka</span>`;
+                    bolehPresensi = false;
+                } else {
+                    statusKet = 'Siap melakukan Presensi Masuk';
+                    statusBadge = '<span class="badge bg-success-subtle text-success">Siap Masuk</span>';
+                    bolehPresensi = true;
+                }
             }
             
             const aksiFinal = K.faceAksiMode === 'auto' ? aksiOtomatis : K.faceAksiMode;
+
+            // Validasi jika pengguna secara eksplisit memilih tombol aksi ('masuk' atau 'pulang')
+            if (K.faceAksiMode !== 'auto') {
+                if (aksiFinal === 'masuk') {
+                    if (rec && rec.jam_masuk) {
+                        statusKet = `Sudah presensi masuk hari ini pukul ${rec.jam_masuk}.`;
+                        statusBadge = `<span class="badge bg-secondary-subtle text-secondary">Sudah Masuk</span>`;
+                        bolehPresensi = false;
+                    } else {
+                        const cM = cekWaktuMasuk(K.pengaturan, now);
+                        if (!cM.boleh) {
+                            statusKet = cM.pesan;
+                            statusBadge = `<span class="badge bg-secondary-subtle text-secondary">Belum Dibuka</span>`;
+                            bolehPresensi = false;
+                        }
+                    }
+                } else if (aksiFinal === 'pulang') {
+                    const cP = cekWaktuPulang(rec, K.pengaturan, now);
+                    if (!cP.boleh) {
+                        statusKet = cP.pesan;
+                        statusBadge = `<span class="badge bg-warning-subtle text-warning">Belum Jam Pulang</span>`;
+                        bolehPresensi = false;
+                    }
+                }
+            }
             
             const card = $('#hasilWajah');
             if (card) {
@@ -1489,10 +1604,32 @@ const AKSI = {
         const rec = await statusHariIni(id);
         const bM = $('#btnMasuk'), bP = $('#btnPulang'); $('#btnIzin').disabled = $('#btnSakit').disabled = false;
         let ket;
-        if (rec && (rec.status === 'izin' || rec.status === 'sakit')) { ket = `Hari ini tercatat ${STATUS_LABEL[rec.status]} (disetujui).`; bM.disabled = bP.disabled = true; }
-        else if (rec && rec.jam_pulang) { ket = 'Sudah presensi masuk & pulang hari ini. Sampai jumpa besok!'; bM.disabled = bP.disabled = true; }
-        else if (rec && rec.jam_masuk) { ket = 'Sudah presensi masuk. Silakan presensi pulang saat jam pulang.'; bM.disabled = true; bP.disabled = false; }
-        else { ket = 'Belum presensi hari ini.'; bM.disabled = false; bP.disabled = true; }
+        const now = new Date();
+        if (rec && (rec.status === 'izin' || rec.status === 'sakit')) {
+            ket = `Hari ini tercatat ${STATUS_LABEL[rec.status]} (disetujui).`;
+            bM.disabled = bP.disabled = true;
+        } else if (rec && rec.jam_pulang) {
+            ket = 'Sudah presensi masuk & pulang hari ini. Sampai jumpa besok!';
+            bM.disabled = bP.disabled = true;
+        } else if (rec && rec.jam_masuk) {
+            const cP = cekWaktuPulang(rec, K.pengaturan, now);
+            if (cP.boleh) {
+                ket = `Sudah presensi masuk pukul ${rec.jam_masuk}. Silakan presensi pulang.`;
+                bM.disabled = true; bP.disabled = false;
+            } else {
+                ket = `Sudah presensi masuk pukul ${rec.jam_masuk}. ${cP.pesan}`;
+                bM.disabled = true; bP.disabled = true;
+            }
+        } else {
+            const cM = cekWaktuMasuk(K.pengaturan, now);
+            if (cM.boleh) {
+                ket = 'Belum presensi hari ini. Silakan presensi masuk.';
+                bM.disabled = false; bP.disabled = true;
+            } else {
+                ket = cM.pesan;
+                bM.disabled = true; bP.disabled = true;
+            }
+        }
         $('#statusTerpilih').textContent = ket;
     },
     kembaliPilih() { K.pin = ''; renderPin(); panel('panel-pilih'); },
@@ -1504,6 +1641,17 @@ const AKSI = {
     bukaKamera(el) {
         if (K.pin.length !== 4) { alert('Masukkan PIN 4 digit terlebih dahulu.'); return; }
         K.aksi = el.dataset.aksi;
+        const now = new Date();
+        if (K.aksi === 'masuk') {
+            const cM = cekWaktuMasuk(K.pengaturan, now);
+            if (!cM.boleh) { alert(cM.pesan); return; }
+        }
+        if (K.aksi === 'pulang') {
+            statusHariIni(K.pegawai.id).then(rec => {
+                const cP = cekWaktuPulang(rec, K.pengaturan, now);
+                if (!cP.boleh) { alert(cP.pesan); return; }
+            });
+        }
         $('#judulKamera').textContent = `Presensi ${K.aksi === 'masuk' ? 'Masuk' : 'Pulang'} - ${K.pegawai.nama}`;
         panel('panel-kamera'); resetTampilanKamera();
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -1634,10 +1782,20 @@ const FORM = {
     async pengaturan(f) {
         const fd = new FormData(f);
         await DB.simpanPengaturan({
-            nama_sekolah: (fd.get('nama_sekolah') || '').trim() || 'Sekolah Kita', jam_masuk_standar: fd.get('jam_masuk_standar') || '07:30',
-            toleransi_menit: fd.get('toleransi_menit') || '15', sekolah_lat: (fd.get('sekolah_lat') || '').trim(), sekolah_lng: (fd.get('sekolah_lng') || '').trim(),
-            radius_meter: (fd.get('radius_meter') || '0').trim() || '0', nama_kepala_sekolah: (fd.get('nama_kepala_sekolah') || '').trim(),
-            nip_kepala_sekolah: (fd.get('nip_kepala_sekolah') || '').trim(), kota: (fd.get('kota') || '').trim()
+            nama_sekolah: (fd.get('nama_sekolah') || '').trim() || 'Sekolah Kita',
+            jam_masuk_mulai: (fd.get('jam_masuk_mulai') || '').trim() || '06:00',
+            jam_masuk_standar: fd.get('jam_masuk_standar') || '07:30',
+            toleransi_menit: fd.get('toleransi_menit') || '15',
+            jam_masuk_akhir: (fd.get('jam_masuk_akhir') || '').trim(),
+            jam_pulang_mulai: (fd.get('jam_pulang_mulai') || '').trim() || '14:00',
+            jam_pulang_akhir: (fd.get('jam_pulang_akhir') || '').trim(),
+            jeda_minimal_pulang: (fd.get('jeda_minimal_pulang') || '0').trim(),
+            sekolah_lat: (fd.get('sekolah_lat') || '').trim(),
+            sekolah_lng: (fd.get('sekolah_lng') || '').trim(),
+            radius_meter: (fd.get('radius_meter') || '0').trim() || '0',
+            nama_kepala_sekolah: (fd.get('nama_kepala_sekolah') || '').trim(),
+            nip_kepala_sekolah: (fd.get('nip_kepala_sekolah') || '').trim(),
+            kota: (fd.get('kota') || '').trim()
         });
         flash('Pengaturan berhasil disimpan.', 'success'); render();
     },
@@ -1675,6 +1833,8 @@ async function catatPresensi(pid, pin, aksi, foto, viaWajah = false) {
 
     if (aksi === 'masuk') {
         if (rec && rec.jam_masuk) return { ok: false, pesan: `${p.nama} sudah presensi masuk hari ini pukul ${rec.jam_masuk}.`, kat: 'warning' };
+        const cM = cekWaktuMasuk(set, now);
+        if (!cM.boleh) return { ok: false, pesan: cM.pesan, kat: 'danger' };
         const status = (now.getHours() * 60 + now.getMinutes()) <= batasTerlambat(set.jam_masuk_standar, set.toleransi_menit) ? 'hadir' : 'terlambat';
         rec = Object.assign(rec || { pegawai_id: pid, tanggal: tgl }, { jam_masuk: jam, lokasi_masuk: lokasi, lat_masuk: K.lat, lng_masuk: K.lng, foto_masuk: foto, status, waktu_catat: nowStr(), metode: viaWajah ? 'wajah' : 'pin' });
         await DB.put('presensi', rec);
@@ -1683,6 +1843,8 @@ async function catatPresensi(pid, pin, aksi, foto, viaWajah = false) {
     if (aksi === 'pulang') {
         if (!rec || !rec.jam_masuk) return { ok: false, pesan: `${p.nama} belum presensi masuk, belum bisa presensi pulang.`, kat: 'danger' };
         if (rec.jam_pulang) return { ok: false, pesan: `${p.nama} sudah presensi pulang hari ini pukul ${rec.jam_pulang}.`, kat: 'warning' };
+        const cP = cekWaktuPulang(rec, set, now);
+        if (!cP.boleh) return { ok: false, pesan: cP.pesan, kat: 'danger' };
         Object.assign(rec, { jam_pulang: jam, lokasi_pulang: lokasi, lat_pulang: K.lat, lng_pulang: K.lng, foto_pulang: foto, metode_pulang: viaWajah ? 'wajah' : 'pin' });
         await DB.put('presensi', rec);
         return { ok: true, pesan: `Presensi Pulang berhasil, ${p.nama} — pukul ${jam}. Sampai jumpa!`, kat: 'success', pegawai: p, jam };
@@ -1953,10 +2115,57 @@ async function unduhLaporanPdf() {
 async function halPengaturan() {
     const p = await DB.pengaturan();
     return `${head('', 'Pengaturan')}
-    <div class="card-x p-4" style="max-width:560px;"><form data-form="pengaturan">
-        <div class="mb-3"><label class="form-label small">Nama Sekolah</label><input name="nama_sekolah" class="form-control" value="${esc(p.nama_sekolah)}"><div class="form-text">Ditampilkan di halaman Kiosk.</div></div>
-        <div class="row g-3 mb-3"><div class="col-6"><label class="form-label small">Jam Masuk Standar</label><input type="time" name="jam_masuk_standar" class="form-control" value="${esc(p.jam_masuk_standar)}" required></div>
-        <div class="col-6"><label class="form-label small">Toleransi Keterlambatan (menit)</label><input type="number" name="toleransi_menit" class="form-control" value="${esc(p.toleransi_menit)}" min="0" required></div></div>
+    <div class="card-x p-4" style="max-width:620px;"><form data-form="pengaturan">
+        <div class="mb-3"><label class="form-label small fw-semibold">Nama Sekolah</label><input name="nama_sekolah" class="form-control" value="${esc(p.nama_sekolah)}"><div class="form-text">Ditampilkan di halaman Kiosk.</div></div>
+        
+        <hr class="my-4">
+        <h6 class="fw-bold mb-1"><i class="bi bi-clock-history me-1"></i>Jadwal Presensi Masuk &amp; Pulang</h6>
+        <p class="small text-muted mb-3">Atur rentang jam kerja agar pegawai tidak dapat presensi keluar/pulang sembarangan sesaat setelah presensi masuk.</p>
+        
+        <div class="row g-2 mb-2">
+            <div class="col-sm-6">
+                <label class="form-label small fw-semibold">Jam Mulai Masuk</label>
+                <input type="time" name="jam_masuk_mulai" class="form-control" value="${esc(p.jam_masuk_mulai || '06:00')}">
+                <div class="form-text small">Waktu paling awal dibuka presensi masuk.</div>
+            </div>
+            <div class="col-sm-6">
+                <label class="form-label small fw-semibold">Batas Masuk Tepat Waktu</label>
+                <input type="time" name="jam_masuk_standar" class="form-control" value="${esc(p.jam_masuk_standar || '07:30')}" required>
+                <div class="form-text small">Lewat jam ini dihitung terlambat.</div>
+            </div>
+        </div>
+        <div class="row g-2 mb-3">
+            <div class="col-sm-6">
+                <label class="form-label small fw-semibold">Toleransi Terlambat (menit)</label>
+                <input type="number" name="toleransi_menit" class="form-control" value="${esc(p.toleransi_menit || '15')}" min="0" required>
+            </div>
+            <div class="col-sm-6">
+                <label class="form-label small fw-semibold">Batas Akhir Masuk (Opsional)</label>
+                <input type="time" name="jam_masuk_akhir" class="form-control" value="${esc(p.jam_masuk_akhir || '11:00')}">
+                <div class="form-text small">Kosongkan jika tidak dibatasi.</div>
+            </div>
+        </div>
+
+        <div class="p-3 bg-light rounded border mb-3">
+            <div class="row g-2 mb-2">
+                <div class="col-sm-6">
+                    <label class="form-label small fw-semibold text-primary">Jam Mulai Boleh Pulang</label>
+                    <input type="time" name="jam_pulang_mulai" class="form-control" value="${esc(p.jam_pulang_mulai || '14:00')}" required>
+                    <div class="form-text small">Pegawai <strong>tidak bisa</strong> pulang sebelum jam ini.</div>
+                </div>
+                <div class="col-sm-6">
+                    <label class="form-label small fw-semibold">Batas Akhir Pulang (Opsional)</label>
+                    <input type="time" name="jam_pulang_akhir" class="form-control" value="${esc(p.jam_pulang_akhir || '18:00')}">
+                    <div class="form-text small">Kosongkan jika tidak dibatasi.</div>
+                </div>
+            </div>
+            <div>
+                <label class="form-label small fw-semibold">Jeda Minimal Masuk ke Pulang (menit)</label>
+                <input type="number" name="jeda_minimal_pulang" class="form-control" value="${esc(p.jeda_minimal_pulang || '30')}" min="0" style="max-width:200px;">
+                <div class="form-text small">Mencegah pegawai langsung absen pulang sesaat setelah absen masuk.</div>
+            </div>
+        </div>
+
         <hr class="my-4"><h6 class="fw-bold mb-2"><i class="bi bi-geo-alt-fill me-1"></i>Batas Lokasi Presensi (Opsional)</h6>
         <p class="small text-muted">Jika diisi, presensi hanya bisa dilakukan dalam radius tertentu dari titik lokasi sekolah. Kosongkan / isi 0 untuk menonaktifkan.</p>
         <div class="row g-3 mb-2"><div class="col-6"><label class="form-label small">Latitude Sekolah</label><input name="sekolah_lat" id="sekolahLat" class="form-control" value="${esc(p.sekolah_lat)}" placeholder="cth. -5.5975"></div>
@@ -1968,7 +2177,7 @@ async function halPengaturan() {
         <div class="col-md-4"><label class="form-label small">NIP Kepala Sekolah</label><input name="nip_kepala_sekolah" class="form-control" value="${esc(p.nip_kepala_sekolah)}"></div>
         <div class="col-md-3"><label class="form-label small">Kota</label><input name="kota" class="form-control" value="${esc(p.kota)}" placeholder="cth. Jakarta"></div></div>
         <button type="submit" class="btn btn-brand"><i class="bi bi-save me-1"></i>Simpan Pengaturan</button></form></div>
-    <div class="card-x p-4 mt-4" style="max-width:560px;"><h6 class="fw-bold mb-2"><i class="bi bi-hdd me-1"></i>Cadangan Data</h6>
+    <div class="card-x p-4 mt-4" style="max-width:620px;"><h6 class="fw-bold mb-2"><i class="bi bi-hdd me-1"></i>Cadangan Data</h6>
         <p class="small text-muted">Versi GitHub Pages menyimpan data di browser perangkat ini (tidak otomatis tersinkron ke perangkat lain). Unduh cadangan secara berkala, dan pulihkan bila berpindah perangkat.</p>
         <div class="d-flex gap-2 flex-wrap"><button class="btn btn-outline-secondary btn-sm" data-act="cadangkan"><i class="bi bi-download me-1"></i>Unduh Cadangan</button>
         <button class="btn btn-outline-secondary btn-sm" data-act="pulihkan"><i class="bi bi-upload me-1"></i>Pulihkan dari Cadangan</button>
