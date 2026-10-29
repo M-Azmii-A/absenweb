@@ -4,7 +4,14 @@
 const STORES = ['pegawai', 'presensi', 'perizinan', 'users', 'pengaturan'];
 
 const PENGATURAN_DEFAULT = {
-    nama_sekolah: 'Sekolah Kita', jam_masuk_standar: '07:30', toleransi_menit: '15',
+    nama_sekolah: 'Sekolah Kita',
+    jam_masuk_mulai: '06:00',
+    jam_masuk_standar: '07:30',
+    toleransi_menit: '15',
+    jam_masuk_akhir: '11:00',
+    jam_pulang_mulai: '14:00',
+    jam_pulang_akhir: '18:00',
+    jeda_minimal_pulang: '30',
     sekolah_lat: '', sekolah_lng: '', radius_meter: '0',
     nama_kepala_sekolah: '', nip_kepala_sekolah: '', kota: ''
 };
