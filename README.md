@@ -4,12 +4,16 @@ Aplikasi presensi guru dan staf (SDLC Waterfall) yang berjalan **langsung di Git
 `https://<username>.github.io/absenweb/`
 
 ## Fitur
-- **Kiosk presensi** (halaman utama, tanpa login): pilih nama + PIN 4 digit, *Presensi Masuk/Pulang*.
+- **Presensi Pengenalan Wajah Langsung (Face Recognition AI)**: pegawai cukup berdiri di depan kamera kiosk; sistem secara otomatis mendeteksi wajah, mencocokkan identitas pegawai dengan kecocokan tinggi, dan langsung mencatat presensi masuk/pulang tanpa perlu menyentuh layar.
+- **Dua Mode Kiosk**: mode *Presensi Wajah Langsung* dan mode *Presensi Manual (Pilih Nama + PIN 4 digit)* sebagai cadangan.
+- **Pendaftaran Wajah Fleksibel**: daftarkan wajah langsung dari Kiosk (dengan verifikasi PIN pegawai) atau dari menu Admin Guru & Staf (via webcam langsung atau unggah file foto pasfoto).
 - **Foto + geotagging dalam satu langkah**: satu kali ambil foto langsung dibubuhi nama, waktu, dan koordinat GPS.
+- **Notifikasi Suara Interaktif**: bunyi chime konfirmasi saat presensi wajah berhasil dicatat.
 - **Perizinan**: pegawai mengajukan sakit/izin; Kepala Sekolah menyetujui/menolak; hari kerja yang disetujui tercatat otomatis.
 - **Pemantauan lokasi**: tombol **Peta** (titik GPS di Google Maps) dan foto di Riwayat dan Dashboard.
 - **Laporan bulanan** dengan pencarian nama/NIP/ID, rincian individu, dan **PDF** berkolom pengesahan.
-- Peran: Administrator dan Kepala Sekolah; pengaturan jam masuk, toleransi, geofencing; mode gelap.
+- **Pengaturan Jam Kerja & Batas Presensi Fleksibel**: waktu buka/tutup presensi masuk, batas tepat waktu, toleransi, waktu paling awal boleh presensi pulang, dan jeda minimal antara presensi masuk dan pulang (mencegah pegawai langsung absen keluar sesaat setelah absen masuk).
+- **Peran**: Administrator dan Kepala Sekolah; pengaturan jam masuk, toleransi, geofencing; mode gelap.
 
 ## Akun bawaan
 | Untuk | Username / Nama | Password / PIN |
