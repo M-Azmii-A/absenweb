@@ -184,6 +184,29 @@ h1, h2, h3, h4, h5, h6 {
 
 .foto-thumb { width: 64px; height: 48px; object-fit: cover; border-radius: 4px; border: 1px solid #d5d9de; }
 
+/* ---------------- DASHBOARD GRAFIK ---------------- */
+.kpi-card { border-top: 3px solid var(--kpi, var(--brand)); position: relative; }
+.kpi-label { font-size: .74rem; text-transform: uppercase; letter-spacing: .05em; color: var(--bs-secondary-color); font-weight: 600; }
+.kpi-nilai { font-family: "Source Serif 4", Georgia, serif; font-size: 2rem; font-weight: 700; line-height: 1.15; color: var(--ink); }
+.kpi-nilai small { font-size: 1rem; color: var(--bs-secondary-color); font-weight: 600; }
+[data-bs-theme="dark"] .kpi-nilai { color: #e8edf3; }
+.kpi-ikon { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.15rem; color: var(--kpi); background: color-mix(in srgb, var(--kpi) 14%, transparent); }
+.kpi-bar { height: 6px; border-radius: 3px; background: var(--bs-tertiary-bg); margin: 10px 0 6px; overflow: hidden; }
+.kpi-bar span { display: block; height: 100%; background: var(--kpi); border-radius: 3px; }
+.kpi-sub { font-size: .76rem; color: var(--bs-secondary-color); margin-top: 6px; }
+.tren-svg { width: 100%; height: auto; display: block; }
+.grid-g { stroke: var(--bs-border-color); stroke-width: 1; stroke-dasharray: 3 3; }
+.sumbu-t { font-size: 10px; fill: var(--bs-secondary-color); }
+.sumbu-h { opacity: .7; }
+.donat-svg { width: 100%; max-width: 190px; height: auto; }
+.donat-angka { font-family: "Source Serif 4", Georgia, serif; font-size: 26px; font-weight: 700; fill: var(--bs-body-color); }
+.donat-label { font-size: 9px; fill: var(--bs-secondary-color); }
+.legenda { display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; font-size: .76rem; margin-top: 10px; color: var(--bs-secondary-color); }
+.legenda i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; }
+.peringkat { margin-bottom: 12px; }
+.bar-h { height: 8px; border-radius: 4px; background: var(--bs-tertiary-bg); margin-top: 4px; overflow: hidden; }
+.bar-h span { display: block; height: 100%; background: #f0ad00; border-radius: 4px; }
+
 </style>
 <style>
 body.kiosk { min-height: 100vh; background-color: #12283f; background-image: radial-gradient(circle at 50% 0%, #1b3a5c 0%, #12283f 62%); color: #fff; padding-bottom: 2rem; }
@@ -1901,27 +1924,99 @@ function selLokasiSel(lok, lat, lng, foto, judul) {
     return h;
 }
 
+// ---------- Grafik dashboard (SVG murni, tanpa pustaka tambahan) ----------
+const WARNA_STATUS = { hadir: '#198754', terlambat: '#f0ad00', sakit: '#0dcaf0', izin: '#0d6efd', alpa: '#dc3545', belum: '#adb5bd' };
+function grafikDonat(segmen, tengahAngka, tengahLabel) {
+    const total = segmen.reduce((s, x) => s + x.nilai, 0), R = 62, r = 42, cx = 80, cy = 80;
+    let sudut = -Math.PI / 2, isi = '';
+    if (!total) isi = `<circle cx="${cx}" cy="${cy}" r="${(R + r) / 2}" fill="none" stroke="#adb5bd" stroke-opacity=".3" stroke-width="${R - r}"/>`;
+    else segmen.filter(x => x.nilai > 0).forEach(x => {
+        if (x.nilai === total) { isi += `<circle cx="${cx}" cy="${cy}" r="${(R + r) / 2}" fill="none" stroke="${x.warna}" stroke-width="${R - r}"><title>${x.label}: ${x.nilai}</title></circle>`; return; }
+        const a2 = sudut + x.nilai / total * 2 * Math.PI, b = a2 - sudut > Math.PI ? 1 : 0, p = (rad, a) => `${(cx + rad * Math.cos(a)).toFixed(2)} ${(cy + rad * Math.sin(a)).toFixed(2)}`;
+        isi += `<path d="M ${p(R, sudut)} A ${R} ${R} 0 ${b} 1 ${p(R, a2)} L ${p(r, a2)} A ${r} ${r} 0 ${b} 0 ${p(r, sudut)} Z" fill="${x.warna}" stroke="var(--bs-body-bg)" stroke-width="2"><title>${x.label}: ${x.nilai} (${Math.round(x.nilai / total * 100)}%)</title></path>`;
+        sudut = a2;
+    });
+    return `<svg viewBox="0 0 160 160" class="donat-svg" role="img" aria-label="Diagram donat">${isi}<text x="80" y="80" text-anchor="middle" class="donat-angka">${tengahAngka}</text><text x="80" y="98" text-anchor="middle" class="donat-label">${tengahLabel}</text></svg>`;
+}
+function legendaGrafik(items) { return `<div class="legenda">${items.map(x => `<span><i style="background:${x.warna}"></i>${x.label}${x.nilai !== undefined ? ` <strong>${x.nilai}</strong>` : ''}</span>`).join('')}</div>`; }
+function grafikTren(hari) {
+    const W = 640, H = 230, kiri = 34, bawah = 38, atas = 12, lebar = W - kiri - 8, tinggi = H - bawah - atas;
+    const maks = Math.max(1, ...hari.map(h => h.hadir + h.terlambat + h.sakit + h.izin + h.alpa)), skalaMaks = Math.max(maks, 4);
+    const langkah = skalaMaks <= 6 ? 1 : Math.ceil(skalaMaks / 5), ymax = Math.ceil(skalaMaks / langkah) * langkah, band = lebar / hari.length, bw = Math.min(30, band * 0.62);
+    let s = `<svg viewBox="0 0 ${W} ${H}" class="tren-svg" role="img" aria-label="Grafik batang tren kehadiran">`;
+    for (let v = 0; v <= ymax; v += langkah) { const y = atas + tinggi - v / ymax * tinggi; s += `<line x1="${kiri}" x2="${W - 8}" y1="${y}" y2="${y}" class="grid-g"/><text x="${kiri - 6}" y="${y + 3.5}" text-anchor="end" class="sumbu-t">${v}</text>`; }
+    hari.forEach((h, i) => {
+        const x = kiri + band * i + (band - bw) / 2; let y = atas + tinggi;
+        ['hadir', 'terlambat', 'izin', 'sakit', 'alpa'].forEach(k => { const t = h[k] / ymax * tinggi; if (t <= 0) return; y -= t; s += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${t.toFixed(1)}" fill="${WARNA_STATUS[k]}" rx="2"><title>${h.label}: ${STATUS_LABEL[k]} ${h[k]}</title></rect>`; });
+        s += `<text x="${(x + bw / 2).toFixed(1)}" y="${H - 20}" text-anchor="middle" class="sumbu-t">${h.tgl.slice(8)}</text><text x="${(x + bw / 2).toFixed(1)}" y="${H - 7}" text-anchor="middle" class="sumbu-t sumbu-h">${h.hari}</text>`;
+    });
+    return s + '</svg>';
+}
+function hitungTren(peg, pres, jumlah) {
+    const hasil = [], tgl0 = hariIni(), per = {};
+    pres.forEach(r => { (per[r.tanggal] = per[r.tanggal] || []).push(r); });
+    for (let d = new Date(); hasil.length < jumlah && d.getFullYear() > 2000; d.setDate(d.getDate() - 1)) {
+        if (dowSenin(d) >= 5) continue;
+        const t = isoTgl(d), h = { tgl: t, hari: ['S', 'S', 'R', 'K', 'J'][dowSenin(d)], label: tglIndo(t), hadir: 0, terlambat: 0, sakit: 0, izin: 0, alpa: 0 };
+        (per[t] || []).forEach(r => { if (h[r.status] !== undefined) h[r.status]++; });
+        const aktifT = peg.filter(p => p.status === 'aktif' && (p.created_at || '').slice(0, 10) <= t).length;
+        if (t < tgl0) h.alpa = Math.max(aktifT - (h.hadir + h.terlambat + h.sakit + h.izin), 0);
+        hasil.unshift(h);
+    }
+    return hasil;
+}
+
 async function halDashboard() {
-    const tgl = hariIni(), [peg, pres, izin] = await Promise.all([DB.all('pegawai'), DB.all('presensi'), DB.all('perizinan')]);
+    const tgl = hariIni(), now = new Date(), [peg, pres, izin] = await Promise.all([DB.all('pegawai'), DB.all('presensi'), DB.all('perizinan')]);
     const aktif = peg.filter(p => p.status === 'aktif'), guru = aktif.filter(p => p.jenis === 'guru').length, staf = aktif.length - guru;
     const rekap = { hadir: 0, terlambat: 0, sakit: 0, izin: 0, alpa: 0 };
-    pres.filter(r => r.tanggal === tgl).forEach(r => rekap[r.status]++);
+    pres.filter(r => r.tanggal === tgl && rekap[r.status] !== undefined).forEach(r => rekap[r.status]++);
     const sudah = rekap.hadir + rekap.terlambat + rekap.sakit + rekap.izin, belum = Math.max(aktif.length - sudah, 0);
     const nama = Object.fromEntries(peg.map(p => [p.id, p]));
-    const terbaru = pres.filter(r => nama[r.pegawai_id]).sort((a, b) => (b.waktu_catat || '').localeCompare(a.waktu_catat || '')).slice(0, 10);
-    const menunggu = izin.filter(z => z.status === 'menunggu' && nama[z.pegawai_id]).sort((a, b) => b.diajukan_pada.localeCompare(a.diajukan_pada)).slice(0, 5);
-    const stat = (ikon, nilai, label) => `<div class="col-6 col-lg-3"><div class="stat-box card-x p-3 d-flex gap-3 align-items-center"><div class="icon bg-light"><i class="bi bi-${ikon}"></i></div><div><div class="value">${nilai}</div><div class="label">${label}</div></div></div></div>`;
-    return `${head('Ringkasan', 'Dashboard')}
-    <div class="row g-3 mb-4">${stat('person-workspace', guru, 'Guru aktif')}${stat('person-badge', staf, 'Staf aktif')}${stat('check2-circle', sudah, 'Sudah presensi hari ini')}${stat('hourglass-split', belum, 'Belum presensi')}</div>
-    <div class="card-x p-3 mb-4"><h6 class="fw-bold mb-3">Rekap Hari Ini — ${tglIndo(tgl)}</h6><div class="d-flex gap-2 flex-wrap">${Object.keys(rekap).map(k => `<div class="pill-status bg-${STATUS_BADGE[k]}-subtle"><div class="n">${rekap[k]}</div><div class="l">${STATUS_LABEL[k]}</div></div>`).join('')}</div></div>
-    <div class="row g-3"><div class="col-lg-5"><div class="card-x p-3 h-100"><h6 class="fw-bold mb-3"><i class="bi bi-envelope-paper me-1"></i>Pengajuan Menunggu</h6>
-        ${menunggu.length ? menunggu.map(z => `<div class="border-bottom py-2 small"><strong>${esc(nama[z.pegawai_id].nama)}</strong> — ${badgeStatus(z.jenis)}<br><span class="text-muted">${tglIndo(z.tanggal_mulai)}</span></div>`).join('') + '<a href="#/perizinan" class="btn btn-outline-secondary btn-sm mt-3">Lihat semua</a>' : '<p class="text-muted mb-0">Tidak ada pengajuan yang menunggu.</p>'}
-        <p class="small text-muted mt-3 mb-0">Guru dan staf presensi sendiri di kiosk memakai PIN, foto, GPS, dan waktu tercatat otomatis.</p></div></div>
-    <div class="col-lg-7"><div class="card-x p-3 h-100"><h6 class="fw-bold mb-3"><i class="bi bi-clock-history me-1"></i>Presensi Terbaru</h6>
+    const terbaru = pres.filter(r => nama[r.pegawai_id]).sort((a, b) => (b.waktu_catat || '').localeCompare(a.waktu_catat || '')).slice(0, 8);
+    const menunggu = izin.filter(z => z.status === 'menunggu' && nama[z.pegawai_id]).sort((a, b) => b.diajukan_pada.localeCompare(a.diajukan_pada));
+    // bulan berjalan
+    const rb = rekapBulanan(peg, pres, now.getFullYear(), now.getMonth() + 1), tot = k => rb.reduce((s, r) => s + r[k], 0);
+    const totalHari = rb.reduce((s, r) => s + r.total, 0), hadirBln = tot('hadir') + tot('terlambat');
+    const persenHadir = totalHari ? Math.round(hadirBln / totalHari * 100) : 0, persenTepat = hadirBln ? Math.round(tot('hadir') / hadirBln * 100) : 0;
+    const persenHariIni = aktif.length ? Math.round(sudah / aktif.length * 100) : 0;
+    const topTerlambat = rb.filter(r => r.terlambat > 0).sort((a, b) => b.terlambat - a.terlambat).slice(0, 5), maksT = topTerlambat.length ? topTerlambat[0].terlambat : 1;
+    // metode presensi 30 hari
+    const batas30 = new Date(); batas30.setDate(batas30.getDate() - 29); const b30 = isoTgl(batas30);
+    const p30 = pres.filter(r => r.tanggal >= b30 && r.jam_masuk), viaWajah = p30.filter(r => r.metode === 'wajah').length, viaPin = p30.length - viaWajah;
+    const wajahTerdaftar = aktif.filter(p => p.face_descriptor && p.face_descriptor.length === 128).length;
+    const tren = hitungTren(peg, pres, 14);
+    const segHariIni = [{ label: 'Hadir', nilai: rekap.hadir, warna: WARNA_STATUS.hadir }, { label: 'Terlambat', nilai: rekap.terlambat, warna: WARNA_STATUS.terlambat }, { label: 'Izin', nilai: rekap.izin, warna: WARNA_STATUS.izin }, { label: 'Sakit', nilai: rekap.sakit, warna: WARNA_STATUS.sakit }, { label: 'Belum presensi', nilai: belum, warna: WARNA_STATUS.belum }];
+    const segMetode = [{ label: 'Wajah', nilai: viaWajah, warna: '#1b3a5c' }, { label: 'PIN', nilai: viaPin, warna: '#c9a227' }];
+    const kpi = (ikon, warna, nilai, label, sub, bar) => `<div class="col-6 col-xl-3"><div class="kpi-card card-x p-3 h-100" style="--kpi:${warna}"><div class="d-flex justify-content-between align-items-start"><div><div class="kpi-label">${label}</div><div class="kpi-nilai">${nilai}</div></div><div class="kpi-ikon"><i class="bi bi-${ikon}"></i></div></div>${bar !== undefined ? `<div class="kpi-bar"><span style="width:${Math.min(bar, 100)}%"></span></div>` : ''}<div class="kpi-sub">${sub}</div></div></div>`;
+    const jam = now.getHours() < 11 ? 'Selamat pagi' : now.getHours() < 15 ? 'Selamat siang' : now.getHours() < 18 ? 'Selamat sore' : 'Selamat malam';
+    return `${head('Ringkasan', 'Dashboard', `<div class="text-end small text-muted"><div>${jam}, <strong>${esc((Sesi.get() || {}).nama || 'Admin')}</strong></div><div>${tglIndo(tgl)}</div></div>`)}
+    <div class="row g-3 mb-3">
+        ${kpi('people-fill', '#1b3a5c', aktif.length, 'Guru &amp; staf aktif', `${guru} guru · ${staf} staf`)}
+        ${kpi('check2-circle', '#198754', `${sudah}<small>/${aktif.length}</small>`, 'Presensi hari ini', `${belum} belum presensi · ${persenHariIni}%`, persenHariIni)}
+        ${kpi('graph-up-arrow', '#0d6efd', `${persenHadir}<small>%</small>`, 'Kehadiran bulan ini', `${persenTepat}% di antaranya tepat waktu`, persenHadir)}
+        ${kpi('envelope-paper', '#f0ad00', menunggu.length, 'Pengajuan menunggu', menunggu.length ? '<a href="#/perizinan">Tinjau sekarang →</a>' : 'Semua sudah diproses')}
+    </div>
+    <div class="row g-3 mb-3">
+        <div class="col-lg-8"><div class="card-x p-3 h-100"><div class="d-flex justify-content-between align-items-center mb-2"><h6 class="fw-bold mb-0"><i class="bi bi-bar-chart-fill me-1"></i>Tren Kehadiran 14 Hari Kerja</h6><a href="#/laporan" class="small">Laporan →</a></div>
+            ${grafikTren(tren)}${legendaGrafik([{ label: 'Hadir', warna: WARNA_STATUS.hadir }, { label: 'Terlambat', warna: WARNA_STATUS.terlambat }, { label: 'Izin', warna: WARNA_STATUS.izin }, { label: 'Sakit', warna: WARNA_STATUS.sakit }, { label: 'Alpa', warna: WARNA_STATUS.alpa }])}</div></div>
+        <div class="col-lg-4"><div class="card-x p-3 h-100"><h6 class="fw-bold mb-2"><i class="bi bi-pie-chart-fill me-1"></i>Komposisi Hari Ini</h6>
+            <div class="text-center">${grafikDonat(segHariIni, `${persenHariIni}%`, 'sudah presensi')}</div>${legendaGrafik(segHariIni)}</div></div>
+    </div>
+    <div class="row g-3 mb-3">
+        <div class="col-lg-4"><div class="card-x p-3 h-100"><h6 class="fw-bold mb-3"><i class="bi bi-alarm me-1"></i>Paling Sering Terlambat <span class="text-muted fw-normal small">bulan ini</span></h6>
+            ${topTerlambat.length ? topTerlambat.map(r => `<div class="peringkat"><div class="d-flex justify-content-between small"><span>${esc(r.pegawai.nama)}</span><strong>${r.terlambat}×</strong></div><div class="bar-h"><span style="width:${r.terlambat / maksT * 100}%"></span></div></div>`).join('') : '<p class="text-muted small mb-0">Belum ada keterlambatan bulan ini. 👏</p>'}</div></div>
+        <div class="col-lg-4"><div class="card-x p-3 h-100"><h6 class="fw-bold mb-2"><i class="bi bi-person-bounding-box me-1"></i>Metode Presensi <span class="text-muted fw-normal small">30 hari</span></h6>
+            <div class="text-center">${grafikDonat(segMetode, p30.length, 'presensi masuk')}</div>${legendaGrafik(segMetode)}
+            <p class="small text-muted text-center mt-2 mb-0">Wajah terdaftar: <strong>${wajahTerdaftar}</strong> dari ${aktif.length} pegawai</p></div></div>
+        <div class="col-lg-4"><div class="card-x p-3 h-100"><h6 class="fw-bold mb-3"><i class="bi bi-envelope-paper me-1"></i>Pengajuan Menunggu</h6>
+            ${menunggu.length ? menunggu.slice(0, 5).map(z => `<div class="border-bottom py-2 small"><strong>${esc(nama[z.pegawai_id].nama)}</strong> — ${badgeStatus(z.jenis)}<br><span class="text-muted">${tglIndo(z.tanggal_mulai)}</span></div>`).join('') + '<a href="#/perizinan" class="btn btn-outline-secondary btn-sm mt-3">Lihat semua</a>' : '<p class="text-muted small mb-0">Tidak ada pengajuan yang menunggu.</p>'}</div></div>
+    </div>
+    <div class="card-x p-3"><h6 class="fw-bold mb-3"><i class="bi bi-clock-history me-1"></i>Presensi Terbaru</h6>
         ${terbaru.length ? `<div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>Tanggal / Jam</th><th>Nama</th><th>Lokasi</th><th>Status</th></tr></thead><tbody>${terbaru.map(a => {
             const lok = a.lokasi_pulang || a.lokasi_masuk, lat = a.lokasi_pulang ? a.lat_pulang : a.lat_masuk, lng = a.lokasi_pulang ? a.lng_pulang : a.lng_masuk;
             return `<tr><td class="small">${a.tanggal} ${a.jam_pulang || a.jam_masuk || ''}</td><td>${esc(nama[a.pegawai_id].nama)}</td><td class="small">${lok ? `<span class="badge-lokasi" title="${esc(lok)}"><i class="bi bi-geo-alt-fill"></i>${esc(potong(lok, 24))}</span>` : '—'}${lat != null && lng != null ? ` <a href="${urlPeta(lat, lng)}" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm py-0 px-1 ms-1" title="Lihat titik lokasi di peta"><i class="bi bi-map"></i></a>` : ''}</td><td>${badgeStatus(a.status)}</td></tr>`;
-        }).join('')}</tbody></table></div>` : '<p class="text-muted mb-0">Belum ada presensi yang tercatat.</p>'}</div></div></div>`;
+        }).join('')}</tbody></table></div>` : '<p class="text-muted mb-0">Belum ada presensi yang tercatat.</p>'}</div>`;
 }
 
 async function halRiwayat() {
