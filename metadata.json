@@ -1,0 +1,8 @@
+{
+  "name": "Presensi Guru & Staf",
+  "description": "Sistem monitoring kehadiran guru dan staf berbasis web dengan pengenalan wajah, kiosk PIN, perizinan, dan laporan PDF.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}

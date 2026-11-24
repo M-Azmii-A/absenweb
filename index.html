@@ -304,7 +304,7 @@ body.kiosk { min-height: 100vh; background-color: #12283f; background-image: rad
 const STORES = ['pegawai', 'presensi', 'perizinan', 'users', 'pengaturan'];
 
 const PENGATURAN_DEFAULT = {
-    nama_sekolah: 'Sekolah Kita',
+    nama_sekolah: 'Sekolah Cinta Kasih Tzu Chi Cengkareng',
     jam_masuk_mulai: '06:00',
     jam_masuk_standar: '07:30',
     toleransi_menit: '15',
@@ -312,8 +312,8 @@ const PENGATURAN_DEFAULT = {
     jam_pulang_mulai: '14:00',
     jam_pulang_akhir: '18:00',
     jeda_minimal_pulang: '30',
-    sekolah_lat: '', sekolah_lng: '', radius_meter: '0',
-    nama_kepala_sekolah: '', nip_kepala_sekolah: '', kota: ''
+    sekolah_lat: '-6.131270', sekolah_lng: '106.737004', radius_meter: '0',
+    nama_kepala_sekolah: '', nip_kepala_sekolah: '', kota: 'Jakarta Barat'
 };
 
 const DB = {
@@ -370,6 +370,12 @@ async function buatUser(username, password, nama_lengkap, role) {
 function nowStr() { const d = new Date(); return isoTgl(d) + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') + ':' + String(d.getSeconds()).padStart(2, '0'); }
 function isoTgl(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
 
+function tglMundur(hari) {
+    const d = new Date();
+    d.setDate(d.getDate() - hari);
+    return d;
+}
+
 async function seedAwal() {
     const users = await DB.all('users');
     if (!users.length) {
@@ -377,12 +383,245 @@ async function seedAwal() {
         await DB.put('users', await buatUser('kepsek', 'kepsek123', 'Kepala Sekolah', 'kepala_sekolah'));
     }
     if (!(await DB.all('pengaturan')).length) await DB.simpanPengaturan(PENGATURAN_DEFAULT);
-    if (!(await DB.all('pegawai')).length) {
-        const contoh = [['Siti Aminah', 'guru', 'Guru Kelas 1', '1111', 'SD'], ['Budi Santoso', 'guru', 'Guru Matematika', '2222', 'SMP'],
-            ['Rina Wulandari', 'guru', 'Guru Mata Pelajaran', '3333', 'SMA'], ['Agus Prasetyo', 'staf', 'Staf Tata Usaha', '4444', 'SMK'],
-            ['Dewi Kartika', 'staf', 'Staf Kebersihan', '5555', 'SD']];
-        for (const [nama, jenis, jabatan, pin, unit] of contoh)
-            await DB.put('pegawai', { nama, nip: null, jenis, unit, jabatan, pin, status: 'aktif', created_at: nowStr() });
+
+    const tglDaftar = isoTgl(tglMundur(45)) + ' 07:00:00';
+    const daftarContoh = [
+        ['Siti Aminah', '198504122010012008', 'guru', 'Guru Kelas 1', '1111', 'SD'],
+        ['Ahmad Fauzi', '198807192014021003', 'guru', 'Guru Kelas 4', '1122', 'SD'],
+        ['Nurul Hidayah', '199102052019032011', 'guru', 'Guru Pendidikan Agama', '1133', 'SD'],
+        ['Dewi Kartika', null, 'staf', 'Staf Kebersihan', '5555', 'SD'],
+        ['Budi Santoso', '198311202009021004', 'guru', 'Guru Matematika', '2222', 'SMP'],
+        ['Lestari Ningrum', '198906142015022006', 'guru', 'Guru Bahasa Indonesia', '2233', 'SMP'],
+        ['Hendra Wijaya', '199209282020121005', 'guru', 'Guru IPA', '2244', 'SMP'],
+        ['Rizky Ramadhan', null, 'staf', 'Staf Laboratorium', '6611', 'SMP'],
+        ['Rina Wulandari', '198603182011012009', 'guru', 'Guru Bahasa Inggris', '3333', 'SMA'],
+        ['Dedi Kurniawan', '198408072010011012', 'guru', 'Guru Fisika', '3344', 'SMA'],
+        ['Maya Sari', '199301122020122007', 'guru', 'Guru Ekonomi', '3355', 'SMA'],
+        ['Fajar Nugroho', null, 'staf', 'Staf Perpustakaan', '7711', 'SMA'],
+        ['Eko Prasetyo', '198705232014021002', 'guru', 'Guru Produktif TKJ', '4411', 'SMK'],
+        ['Sri Wahyuni', '199010152019032014', 'guru', 'Guru Produktif Akuntansi', '4422', 'SMK'],
+        ['Agus Prasetyo', '198201092008011007', 'staf', 'Staf Tata Usaha', '4444', 'SMK'],
+        ['Taufik Hidayat', null, 'staf', 'Staf Sarana & Prasarana', '8811', 'SMK']
+    ];
+
+    const pengaturanRows = await DB.all('pengaturan');
+    const sudahSeedBulanan = pengaturanRows.some(r => r.kunci === '_seed_bulanan_v1');
+    if (!sudahSeedBulanan) {
+        const pegEksisting = await DB.all('pegawai');
+        const presEksisting = await DB.all('presensi');
+        const byNama = Object.fromEntries(pegEksisting.map(p => [p.nama, p]));
+
+        for (const [nama, nip, jenis, jabatan, pin, unit] of daftarContoh) {
+            if (byNama[nama]) {
+                if (!presEksisting.length) {
+                    byNama[nama].created_at = tglDaftar;
+                    if (!byNama[nama].nip && nip) byNama[nama].nip = nip;
+                    if (!byNama[nama].unit) byNama[nama].unit = unit;
+                    await DB.put('pegawai', byNama[nama]);
+                }
+            } else {
+                await DB.put('pegawai', { nama, nip, jenis, unit, jabatan, pin, status: 'aktif', created_at: tglDaftar });
+            }
+        }
+
+        if (!presEksisting.length) {
+            const semuaPeg = (await DB.all('pegawai')).filter(p => p.status === 'aktif');
+            const izinAlasan = [
+                'Keperluan keluarga mendesak',
+                'Mengurus administrasi keluarga',
+                'Menghadiri undangan dinas luar kota',
+                'Acara keluarga inti'
+            ];
+            const sakitAlasan = [
+                'Demam dan flu, perlu istirahat',
+                'Kontrol kesehatan ke klinik',
+                'Migrain berat sesuai anjuran dokter'
+            ];
+            const fmtJam = (h, m) => String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+            const latBase = -6.131270, lngBase = 106.737004;
+
+            for (let hariLalu = 30; hariLalu >= 0; hariLalu--) {
+                const d = tglMundur(hariLalu);
+                const dow = (d.getDay() + 6) % 7;
+                if (dow >= 5) continue; // Hanya hari kerja Senin - Jumat
+                const tgl = isoTgl(d);
+
+                for (const p of semuaPeg) {
+                    const seed = (p.id * 37 + hariLalu * 19) % 100;
+                    const lat = Number((latBase + ((p.id % 5) - 2) * 0.00012).toFixed(6));
+                    const lng = Number((lngBase + ((hariLalu % 5) - 2) * 0.00011).toFixed(6));
+                    const lokasi = `Sekolah Cinta Kasih Tzu Chi Cengkareng (${p.unit || 'SD'})`;
+                    const metodeMasuk = (p.id + hariLalu) % 3 === 0 ? 'wajah' : 'pin';
+                    const metodePulang = (p.id + hariLalu) % 4 === 0 ? 'wajah' : 'pin';
+
+                    // Hari ini: sebagian besar sudah absen masuk, sisakan ~25% belum absen agar bisa diuji di Kiosk
+                    if (hariLalu === 0) {
+                        if (seed < 25) continue;
+                        const terlambat = seed >= 84;
+                        const jamM = terlambat
+                            ? fmtJam(7, 47 + (seed % 12))
+                            : fmtJam(6 + (seed % 2 === 0 ? 0 : 1), seed % 2 === 0 ? 48 + (seed % 11) : 5 + (seed % 23));
+                        await DB.put('presensi', {
+                            pegawai_id: p.id,
+                            tanggal: tgl,
+                            jam_masuk: jamM,
+                            lokasi_masuk: lokasi,
+                            lat_masuk: lat,
+                            lng_masuk: lng,
+                            status: terlambat ? 'terlambat' : 'hadir',
+                            waktu_catat: `${tgl} ${jamM}:12`,
+                            metode: metodeMasuk
+                        });
+                        continue;
+                    }
+
+                    // Hari lampau (1..30 hari kebelakang)
+                    if (seed < 3) {
+                        // Tidak tercatat -> otomatis dihitung Alpa pada rekap
+                        continue;
+                    } else if (seed < 8) {
+                        const alasan = izinAlasan[(p.id + hariLalu) % izinAlasan.length];
+                        await DB.put('perizinan', {
+                            pegawai_id: p.id,
+                            jenis: 'izin',
+                            tanggal_mulai: tgl,
+                            tanggal_selesai: tgl,
+                            alasan,
+                            status: 'disetujui',
+                            diajukan_pada: `${tgl} 06:30:00`,
+                            diputuskan_oleh: 'Kepala Sekolah',
+                            diputuskan_pada: `${tgl} 07:10:00`,
+                            catatan_keputusan: 'Disetujui'
+                        });
+                        await DB.put('presensi', {
+                            pegawai_id: p.id,
+                            tanggal: tgl,
+                            status: 'izin',
+                            keterangan: alasan,
+                            waktu_catat: `${tgl} 07:10:00`
+                        });
+                    } else if (seed < 12) {
+                        const alasan = sakitAlasan[(p.id + hariLalu) % sakitAlasan.length];
+                        await DB.put('perizinan', {
+                            pegawai_id: p.id,
+                            jenis: 'sakit',
+                            tanggal_mulai: tgl,
+                            tanggal_selesai: tgl,
+                            alasan,
+                            status: 'disetujui',
+                            diajukan_pada: `${tgl} 06:20:00`,
+                            diputuskan_oleh: 'Kepala Sekolah',
+                            diputuskan_pada: `${tgl} 07:05:00`,
+                            catatan_keputusan: 'Semoga lekas sembuh'
+                        });
+                        await DB.put('presensi', {
+                            pegawai_id: p.id,
+                            tanggal: tgl,
+                            status: 'sakit',
+                            keterangan: alasan,
+                            waktu_catat: `${tgl} 07:05:00`
+                        });
+                    } else if (seed < 26) {
+                        const jamM = fmtJam(7, 46 + (seed % 34));
+                        const jamP = fmtJam(14 + (seed % 2), 5 + ((seed * 3) % 45));
+                        await DB.put('presensi', {
+                            pegawai_id: p.id,
+                            tanggal: tgl,
+                            jam_masuk: jamM,
+                            jam_pulang: jamP,
+                            lokasi_masuk: lokasi,
+                            lokasi_pulang: lokasi,
+                            lat_masuk: lat,
+                            lng_masuk: lng,
+                            lat_pulang: lat,
+                            lng_pulang: lng,
+                            status: 'terlambat',
+                            waktu_catat: `${tgl} ${jamM}:08`,
+                            metode: metodeMasuk,
+                            metode_pulang: metodePulang
+                        });
+                    } else {
+                        const jamM = (seed % 3 === 0)
+                            ? fmtJam(6, 46 + (seed % 13))
+                            : fmtJam(7, seed % 28);
+                        const jamP = fmtJam(14 + (seed % 2), 2 + ((seed * 7) % 48));
+                        await DB.put('presensi', {
+                            pegawai_id: p.id,
+                            tanggal: tgl,
+                            jam_masuk: jamM,
+                            jam_pulang: jamP,
+                            lokasi_masuk: lokasi,
+                            lokasi_pulang: lokasi,
+                            lat_masuk: lat,
+                            lng_masuk: lng,
+                            lat_pulang: lat,
+                            lng_pulang: lng,
+                            status: 'hadir',
+                            waktu_catat: `${tgl} ${jamM}:05`,
+                            metode: metodeMasuk,
+                            metode_pulang: metodePulang
+                        });
+                    }
+                }
+            }
+
+            // Tambahkan contoh pengajuan perizinan yang masih menunggu persetujuan Kepala Sekolah
+            const tglBesok = isoTgl(tglMundur(-1));
+            const tglLusa = isoTgl(tglMundur(-2));
+            if (semuaPeg.length >= 2) {
+                await DB.put('perizinan', {
+                    pegawai_id: semuaPeg[0].id,
+                    jenis: 'izin',
+                    tanggal_mulai: tglBesok,
+                    tanggal_selesai: tglBesok,
+                    alasan: 'Menghadiri wisuda keluarga di luar kota',
+                    status: 'menunggu',
+                    diajukan_pada: nowStr()
+                });
+                await DB.put('perizinan', {
+                    pegawai_id: semuaPeg[1].id,
+                    jenis: 'sakit',
+                    tanggal_mulai: hariIni(),
+                    tanggal_selesai: tglLusa,
+                    alasan: 'Rawat jalan dan istirahat atas saran dokter',
+                    status: 'menunggu',
+                    diajukan_pada: nowStr()
+                });
+            }
+        }
+
+        await DB.put('pengaturan', { kunci: '_seed_bulanan_v1', nilai: '1' });
+    }
+
+    const sudahLokasiTzuChiV2 = (await DB.all('pengaturan')).some(r => r.kunci === '_lokasi_tzuchi_v2');
+    if (!sudahLokasiTzuChiV2) {
+        const setSekarang = await DB.pengaturan();
+        const pembaruan = {};
+        if (!setSekarang.nama_sekolah || setSekarang.nama_sekolah === 'Sekolah Kita') pembaruan.nama_sekolah = PENGATURAN_DEFAULT.nama_sekolah;
+        if (!setSekarang.sekolah_lat || setSekarang.sekolah_lat === '-6.1421') pembaruan.sekolah_lat = PENGATURAN_DEFAULT.sekolah_lat;
+        if (!setSekarang.sekolah_lng || setSekarang.sekolah_lng === '106.7561') pembaruan.sekolah_lng = PENGATURAN_DEFAULT.sekolah_lng;
+        if (!setSekarang.kota) pembaruan.kota = PENGATURAN_DEFAULT.kota;
+        if (Object.keys(pembaruan).length) await DB.simpanPengaturan(pembaruan);
+
+        const semuaPeg = await DB.all('pegawai');
+        const pegById = Object.fromEntries(semuaPeg.map(p => [p.id, p]));
+        const presRows = await DB.all('presensi');
+        const latBase = -6.131270, lngBase = 106.737004;
+        for (const r of presRows) {
+            const cocokSeedLama = (r.lokasi_masuk && (r.lokasi_masuk.includes('Sekolah Kita') || r.lokasi_masuk.includes('Sekolah Cinta Kasih Tzu Chi Cengkareng'))) ||
+                (r.lokasi_pulang && (r.lokasi_pulang.includes('Sekolah Kita') || r.lokasi_pulang.includes('Sekolah Cinta Kasih Tzu Chi Cengkareng')));
+            if (!cocokSeedLama) continue;
+            const p = pegById[r.pegawai_id];
+            const lokasiBaru = `Sekolah Cinta Kasih Tzu Chi Cengkareng (${p ? unitDari(p) : 'SD'})`;
+            const dOff = r.tanggal ? Number(r.tanggal.slice(-2)) : 0;
+            const latBaru = Number((latBase + (((r.pegawai_id || 0) % 5) - 2) * 0.00012).toFixed(6));
+            const lngBaru = Number((lngBase + ((dOff % 5) - 2) * 0.00011).toFixed(6));
+            if (r.lokasi_masuk) { r.lokasi_masuk = lokasiBaru; r.lat_masuk = latBaru; r.lng_masuk = lngBaru; }
+            if (r.lokasi_pulang) { r.lokasi_pulang = lokasiBaru; r.lat_pulang = latBaru; r.lng_pulang = lngBaru; }
+            await DB.put('presensi', r);
+        }
+        await DB.put('pengaturan', { kunci: '_lokasi_tzuchi_v1', nilai: '1' });
+        await DB.put('pengaturan', { kunci: '_lokasi_tzuchi_v2', nilai: '1' });
     }
 }
 
@@ -422,7 +661,9 @@ const dowSenin = d => (d.getDay() + 6) % 7;            // 0 = Senin
 const parseTgl = s => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
 const tglIndo = s => { try { const d = parseTgl(s); return `${NAMA_HARI_MULAI_SENIN[dowSenin(d)]}, ${d.getDate()} ${NAMA_BULAN[d.getMonth() + 1]} ${d.getFullYear()}`; } catch (e) { return s; } };
 const potong = (t, n) => t && t.length > n ? t.slice(0, n) + '…' : (t || '');
-const urlPeta = (lat, lng) => `https://www.google.com/maps?q=${lat},${lng}`;
+const ALAMAT_SEKOLAH_MAPS = 'Jl. Kamal Raya Outer Ring Road No.20, RT.7/RW.14, Cengkareng Tim., Kecamatan Cengkareng, Kota Jakarta Barat, Daerah Khusus Ibukota Jakarta 11730';
+const LINK_PETA_SEKOLAH = 'https://maps.app.goo.gl/by63EgDAc9thCjfR8';
+const urlPeta = () => LINK_PETA_SEKOLAH;
 
 // ---------- sesi & pesan ----------
 const Sesi = {
@@ -1847,7 +2088,7 @@ const FORM = {
     async pengaturan(f) {
         const fd = new FormData(f);
         await DB.simpanPengaturan({
-            nama_sekolah: (fd.get('nama_sekolah') || '').trim() || 'Sekolah Kita',
+            nama_sekolah: (fd.get('nama_sekolah') || '').trim() || 'Sekolah Cinta Kasih Tzu Chi Cengkareng',
             jam_masuk_mulai: (fd.get('jam_masuk_mulai') || '').trim() || '06:00',
             jam_masuk_standar: fd.get('jam_masuk_standar') || '07:30',
             toleransi_menit: fd.get('toleransi_menit') || '15',
@@ -1961,7 +2202,7 @@ const badgeStatus = s => `<span class="badge bg-${STATUS_BADGE[s] || 'secondary'
 function sel(v, cocok) { return v === cocok ? 'selected' : ''; }
 function selLokasiSel(lok, lat, lng, foto, judul) {
     let h = lok ? `<span class="badge-lokasi" title="${esc(lok)}"><i class="bi bi-geo-alt-fill"></i>${esc(potong(lok, 30))}</span>` : '—';
-    if (lat != null && lng != null) h += ` <a href="${urlPeta(lat, lng)}" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm py-0 px-1 ms-1" title="Lihat titik lokasi di peta"><i class="bi bi-map"></i> Peta</a>`;
+    if (lok || (lat != null && lng != null)) h += ` <a href="${urlPeta(lat, lng)}" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm py-0 px-1 ms-1" title="${esc(ALAMAT_SEKOLAH_MAPS)}"><i class="bi bi-map"></i> Peta</a>`;
     if (foto) h += `<a href="#" data-act="lihatFoto" data-src="${foto}" data-judul="${esc(judul)}" class="d-block mt-1"><img src="${foto}" alt="Foto" class="foto-thumb"></a>`;
     return h;
 }
@@ -2060,7 +2301,7 @@ async function halDashboard() {
     <div class="card-x p-3"><h6 class="fw-bold mb-3"><i class="bi bi-clock-history me-1"></i>Presensi Terbaru</h6>
         ${terbaru.length ? `<div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>Tanggal / Jam</th><th>Nama</th><th>Lokasi</th><th>Status</th></tr></thead><tbody>${terbaru.map(a => {
             const lok = a.lokasi_pulang || a.lokasi_masuk, lat = a.lokasi_pulang ? a.lat_pulang : a.lat_masuk, lng = a.lokasi_pulang ? a.lng_pulang : a.lng_masuk;
-            return `<tr><td class="small">${a.tanggal} ${a.jam_pulang || a.jam_masuk || ''}</td><td>${esc(nama[a.pegawai_id].nama)}</td><td class="small">${lok ? `<span class="badge-lokasi" title="${esc(lok)}"><i class="bi bi-geo-alt-fill"></i>${esc(potong(lok, 24))}</span>` : '—'}${lat != null && lng != null ? ` <a href="${urlPeta(lat, lng)}" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm py-0 px-1 ms-1" title="Lihat titik lokasi di peta"><i class="bi bi-map"></i></a>` : ''}</td><td>${badgeStatus(a.status)}</td></tr>`;
+            return `<tr><td class="small">${a.tanggal} ${a.jam_pulang || a.jam_masuk || ''}</td><td>${esc(nama[a.pegawai_id].nama)}</td><td class="small">${lok ? `<span class="badge-lokasi" title="${esc(lok)}"><i class="bi bi-geo-alt-fill"></i>${esc(potong(lok, 24))}</span>` : '—'}${lok || (lat != null && lng != null) ? ` <a href="${urlPeta(lat, lng)}" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm py-0 px-1 ms-1" title="${esc(ALAMAT_SEKOLAH_MAPS)}"><i class="bi bi-map"></i></a>` : ''}</td><td>${badgeStatus(a.status)}</td></tr>`;
         }).join('')}</tbody></table></div>` : '<p class="text-muted mb-0">Belum ada presensi yang tercatat.</p>'}</div>`;
 }
 
